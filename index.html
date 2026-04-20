@@ -1,0 +1,1819 @@
+
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Simulador FTIR interactivo para crear, analizar e identificar espectros infrarrojos con biblioteca de compuestos" />
+  <title>FTIR Web Simulator 2.0</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config={theme:{extend:{fontFamily:{sans:['Inter','system-ui','sans-serif']}}}}</script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    html, body, #root { height: 100%; margin: 0; }
+    body { background: #020617; font-family: 'Inter', system-ui, sans-serif; }
+
+    /* Custom scrollbar */
+    *::-webkit-scrollbar { width: 6px; height: 6px; }
+    *::-webkit-scrollbar-thumb { background: rgba(148,163,184,.3); border-radius: 999px; transition: background .2s; }
+    *::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,.55); }
+    *::-webkit-scrollbar-track { background: transparent; }
+
+    /* Collapsible */
+    details > summary { list-style: none; }
+    details > summary::-webkit-details-marker { display: none; }
+
+    /* Animations */
+    @keyframes fadeInUp { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes pulseGlow { 0%,100% { box-shadow: 0 0 12px rgba(16,185,129,.15); } 50% { box-shadow: 0 0 24px rgba(16,185,129,.35); } }
+    @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+    .animate-fadeInUp { animation: fadeInUp .5s ease-out both; }
+    .animate-fadeIn { animation: fadeIn .4s ease-out both; }
+    .delay-1 { animation-delay: .1s; }
+    .delay-2 { animation-delay: .2s; }
+    .delay-3 { animation-delay: .3s; }
+    .delay-4 { animation-delay: .4s; }
+
+    /* Premium range inputs */
+    input[type="range"] { -webkit-appearance: none; appearance: none; height: 6px; background: linear-gradient(90deg, #1e293b, #334155); border-radius: 999px; outline: none; cursor: pointer; }
+    input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: linear-gradient(135deg, #10b981, #34d399); border: 2px solid #064e3b; box-shadow: 0 0 6px rgba(16,185,129,.4); cursor: pointer; transition: transform .15s, box-shadow .15s; }
+    input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.2); box-shadow: 0 0 12px rgba(16,185,129,.6); }
+    input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: linear-gradient(135deg, #10b981, #34d399); border: 2px solid #064e3b; cursor: pointer; }
+
+    /* Glass panels */
+    .glass-panel { background: rgba(15,23,42,.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(71,85,105,.4); }
+
+    /* Card hover */
+    .card-hover { transition: all .2s ease; }
+    .card-hover:hover { background: rgba(30,41,59,.9); border-color: rgba(52,211,153,.3); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,.3); }
+
+    /* Button shine */
+    .btn-shine { position: relative; overflow: hidden; }
+    .btn-shine::after { content: ''; position: absolute; inset: 0; background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,.12) 45%, rgba(255,255,255,.18) 50%, transparent 55%); background-size: 200% 100%; animation: shimmer 3s infinite; pointer-events: none; }
+
+    /* Smooth transitions on all interactive elements */
+    button, select, input, a { transition: all .2s ease; }
+    select { cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react">
+const { useMemo, useState } = React;
+
+const BASE_LIBRARY_RAW = [
+  { id: "water", name: "Water", formula: "H2O", category: "Solvents", cp: "4.184 kJ/kg·K", peaks: [[3400, 1.15, 180, "O-H"], [1640, 0.62, 55, "H-O-H"]] },
+  { id: "methanol", name: "Methanol", formula: "CH4O", category: "Alcohols", cp: "2.51 kJ/kg·K", peaks: [[3340, 1.0, 120, "O-H"], [2945, 0.45, 45, "C-H"], [1030, 0.85, 40, "C-O"]] },
+  { id: "ethanol", name: "Ethanol", formula: "C2H6O", category: "Alcohols", cp: "2.44 kJ/kg·K", peaks: [[3350, 0.95, 130, "O-H"], [2970, 0.42, 45, "C-H"], [1450, 0.32, 35, "CH bend"], [1085, 0.78, 45, "C-O"]] },
+  { id: "isopropanol", name: "Isopropanol", formula: "C3H8O", category: "Alcohols", cp: "2.68 kJ/kg·K", peaks: [[3340, 0.92, 125, "O-H"], [2970, 0.55, 42, "C-H"], [1375, 0.42, 28, "CH3"], [1125, 0.75, 40, "C-O"]] },
+  { id: "glycerol", name: "Glycerol", formula: "C3H8O3", category: "Alcohols", cp: "2.43 kJ/kg·K", peaks: [[3330, 1.2, 165, "O-H"], [2935, 0.42, 40, "C-H"], [1100, 0.82, 40, "C-O"], [1040, 0.70, 36, "C-O"]] },
+  { id: "acetone", name: "Acetone", formula: "C3H6O", category: "Ketones", cp: "2.15 kJ/kg·K", peaks: [[2965, 0.38, 42, "C-H"], [1715, 1.05, 32, "C=O"], [1435, 0.30, 35, "CH3"], [1365, 0.35, 28, "CH3"]] },
+  { id: "ethyl_acetate", name: "Ethyl acetate", formula: "C4H8O2", category: "Esters", cp: "s/d", peaks: [[2980, 0.42, 40, "C-H"], [1740, 1.08, 30, "C=O ester"], [1240, 0.72, 35, "C-O ester"], [1040, 0.50, 35, "C-O"]] },
+  { id: "acetic_acid", name: "Acetic acid", formula: "C2H4O2", category: "Acids", cp: "2.05 kJ/kg·K", peaks: [[3000, 0.90, 280, "O-H acid"], [1710, 1.00, 38, "C=O acid"], [1410, 0.32, 35, "O-H bend"], [1290, 0.62, 42, "C-O"]] },
+  { id: "benzene", name: "Benzene", formula: "C6H6", category: "Aromatics", cp: "1.74 kJ/kg·K", peaks: [[3065, 0.28, 28, "C-H sp2"], [1600, 0.42, 24, "C=C ring"], [1495, 0.28, 24, "C=C ring"], [675, 0.55, 20, "C-H oop"]] },
+  { id: "toluene", name: "Toluene", formula: "C7H8", category: "Aromatics", cp: "1.70 kJ/kg·K", peaks: [[3030, 0.25, 28, "C-H sp2"], [2920, 0.35, 35, "C-H sp3"], [1605, 0.38, 24, "C=C ring"], [730, 0.55, 20, "C-H oop"], [695, 0.48, 20, "C-H oop"]] },
+  { id: "phenol", name: "Phenol", formula: "C6H6O", category: "Aromatics", cp: "s/d", peaks: [[3350, 0.82, 130, "O-H"], [1600, 0.40, 24, "C=C arom"], [1230, 0.58, 35, "C-O"], [755, 0.42, 22, "C-H oop"]] },
+  { id: "aniline", name: "Aniline", formula: "C6H7N", category: "Amines", cp: "s/d", peaks: [[3450, 0.45, 55, "N-H"], [3370, 0.40, 55, "N-H"], [1600, 0.48, 25, "N-H bend"], [1270, 0.52, 32, "C-N"]] },
+  { id: "acetonitrile", name: "Acetonitrile", formula: "C2H3N", category: "Nitriles", cp: "s/d", peaks: [[2940, 0.28, 35, "C-H"], [2250, 0.62, 22, "C≡N"], [1375, 0.22, 25, "CH3"]] },
+  { id: "dmso", name: "Dimethyl sulfoxide", formula: "C2H6OS", category: "Sulfur compounds", cp: "s/d", peaks: [[3000, 0.30, 35, "C-H"], [2915, 0.28, 35, "C-H"], [1050, 1.00, 34, "S=O"], [950, 0.34, 28, "C-S"]] },
+  { id: "glucose", name: "Glucose", formula: "C6H12O6", category: "Biomolecules", cp: "s/d", peaks: [[3350, 1.10, 145, "O-H"], [2930, 0.32, 40, "C-H"], [1150, 0.55, 35, "C-O-C"], [1080, 0.72, 35, "C-O"], [1030, 0.68, 34, "C-O"]] },
+  { id: "cellulose", name: "Cellulose", formula: "(C6H10O5)n", category: "Biopolymers", cp: "s/d", peaks: [[3340, 1.00, 145, "O-H"], [2900, 0.35, 42, "C-H"], [1640, 0.22, 45, "H2O"], [1425, 0.32, 28, "CH2"], [1160, 0.55, 32, "C-O-C"], [1055, 0.78, 35, "C-O"], [895, 0.32, 25, "glycosidic"]] },
+  { id: "lignin", name: "Lignin", formula: "biopolymer", category: "Biopolymers", cp: "s/d", peaks: [[3400, 0.72, 150, "O-H"], [2930, 0.35, 38, "C-H"], [1600, 0.55, 26, "aromatic"], [1510, 0.62, 26, "aromatic"], [1265, 0.60, 32, "guaiacyl C-O"], [1030, 0.55, 32, "C-O"]] },
+  { id: "pe", name: "Polyethylene", formula: "(C2H4)n", category: "Polymers", cp: "2.30 kJ/kg·K", peaks: [[2916, 0.95, 28, "CH2 asym"], [2848, 0.82, 26, "CH2 sym"], [1472, 0.48, 24, "CH2 bend"], [730, 0.38, 20, "CH2 rock"], [720, 0.35, 20, "CH2 rock"]] },
+  { id: "pp", name: "Polypropylene", formula: "(C3H6)n", category: "Polymers", cp: "1.90 kJ/kg·K", peaks: [[2950, 0.78, 28, "CH3"], [2918, 0.58, 28, "CH"], [1455, 0.55, 24, "CH3 bend"], [1375, 0.52, 24, "CH3 bend"], [1167, 0.40, 24, "C-C"], [998, 0.30, 22, "rocking"]] },
+  { id: "pet", name: "PET", formula: "(C10H8O4)n", category: "Polymers", cp: "1.20 kJ/kg·K", peaks: [[1715, 1.05, 28, "C=O ester"], [1578, 0.32, 25, "C=C arom"], [1505, 0.28, 25, "C=C arom"], [1240, 0.70, 35, "C-O ester"], [1095, 0.62, 30, "C-O"], [872, 0.38, 22, "C-H arom"], [725, 0.28, 22, "ring"]] },
+  { id: "pvc", name: "PVC", formula: "(C2H3Cl)n", category: "Polymers", cp: "0.90 kJ/kg·K", peaks: [[2910, 0.38, 35, "C-H"], [1430, 0.46, 25, "CH2"], [1250, 0.30, 24, "CH"], [960, 0.32, 22, "C-C"], [690, 0.75, 25, "C-Cl"]] },
+  { id: "pmma", name: "PMMA", formula: "(C5O2H8)n", category: "Polymers", cp: "1.47 kJ/kg·K", peaks: [[2995, 0.45, 30, "C-H"], [1725, 1.08, 28, "C=O ester"], [1445, 0.35, 24, "CH3"], [1260, 0.48, 28, "C-O"], [1190, 0.65, 28, "C-O-C"], [1145, 0.82, 28, "C-O-C"]] },
+  { id: "polystyrene", name: "Polystyrene", formula: "(C8H8)n", category: "Polymers", cp: "1.30 kJ/kg·K", peaks: [[3025, 0.35, 28, "C-H arom"], [2920, 0.28, 30, "C-H"], [1601, 0.50, 25, "C=C arom"], [1493, 0.45, 25, "C=C arom"], [758, 0.75, 22, "C-H oop"], [698, 0.80, 22, "C-H oop"]] },
+  { id: "pla", name: "PLA", formula: "(C3H4O2)n", category: "Polymers", cp: "s/d", peaks: [[2995, 0.38, 28, "C-H"], [2945, 0.34, 28, "C-H"], [1750, 1.05, 28, "C=O ester"], [1455, 0.32, 24, "CH3"], [1180, 0.70, 28, "C-O-C"], [1080, 0.62, 28, "C-O"], [870, 0.30, 22, "C-COO"]] },
+  { id: "calcium_carbonate", name: "Calcium carbonate", formula: "CaCO3", category: "Minerals", cp: "0.82 kJ/kg·K", peaks: [[2510, 0.18, 70, "CO3 overtone"], [1795, 0.18, 55, "CO3 overtone"], [1420, 1.00, 80, "CO3"], [875, 0.55, 24, "CO3 bend"], [713, 0.45, 20, "CO3 bend"]] },
+  { id: "silica", name: "Silica", formula: "SiO2", category: "Minerals", cp: "0.70 kJ/kg·K", peaks: [[3450, 0.28, 140, "surface O-H"], [1630, 0.18, 50, "water bend"], [1100, 1.00, 80, "Si-O-Si"], [800, 0.48, 35, "Si-O-Si"], [470, 0.38, 30, "Si-O"]] },
+  { id: "gypsum", name: "Gypsum", formula: "CaSO4·2H2O", category: "Minerals", cp: "1.09 kJ/kg·K", peaks: [[3520, 0.55, 60, "O-H water"], [3400, 0.48, 70, "O-H water"], [1620, 0.38, 40, "H-O-H"], [1140, 0.90, 50, "SO4"], [670, 0.44, 28, "SO4"], [600, 0.50, 28, "SO4"]] },
+  { id: "kaolinite", name: "Kaolinite", formula: "Al2Si2O5(OH)4", category: "Minerals", cp: "s/d", peaks: [[3695, 0.55, 28, "O-H"], [3650, 0.42, 30, "O-H"], [3620, 0.48, 30, "O-H"], [1030, 0.92, 55, "Si-O"], [915, 0.50, 28, "Al-OH"], [540, 0.34, 25, "Si-O-Al"]] },
+  { id: "alumina", name: "Alumina", formula: "Al2O3", category: "Inorganic oxides", cp: "0.88 kJ/kg·K", peaks: [[750, 0.55, 50, "Al-O"], [590, 0.60, 45, "Al-O"], [470, 0.35, 35, "Al-O"]] },
+  { id: "carbon_dioxide", name: "Carbon dioxide", formula: "CO2", category: "Gases and vapors", cp: "0.844 kJ/kg·K", peaks: [[2350, 1.15, 26, "CO2 asym"], [667, 0.72, 22, "CO2 bend"]] },
+  { id: "methane", name: "Methane", formula: "CH4", category: "Gases and vapors", cp: "2.22 kJ/kg·K", peaks: [[3016, 0.95, 26, "C-H"], [1306, 0.62, 22, "CH4 bend"]] },
+  { id: "furfural", name: "Furfural", formula: "C5H4O2", category: "Biomass pyrolysis", cp: "s/d", peaks: [[3130, 0.32, 28, "C-H furan"], [2850, 0.28, 28, "CHO"], [1680, 1.00, 32, "C=O aldehyde"], [1570, 0.55, 26, "C=C furan"], [1150, 0.62, 34, "C-O-C"]] },
+  { id: "guaiacol", name: "Guaiacol", formula: "C7H8O2", category: "Biomass pyrolysis", cp: "s/d", peaks: [[3500, 0.62, 120, "O-H phenol"], [1600, 0.45, 25, "C=C arom"], [1510, 0.42, 25, "C=C arom"], [1260, 0.72, 34, "Ar-O"], [1030, 0.55, 32, "C-O"]] },
+  // Amino acids & Biomolecules
+  { id: "glycine", name: "Glycine", formula: "C2H5NO2", category: "Amino acids", cp: "s/d", peaks: [[3160, 0.75, 150, "N-H str"], [2920, 0.30, 45, "C-H"], [1610, 0.95, 35, "COO⁻ asym"], [1510, 0.45, 30, "NH3⁺ bend"], [1410, 0.72, 30, "COO⁻ sym"], [1040, 0.38, 28, "C-N"]] },
+  { id: "alanine", name: "L-Alanine", formula: "C3H7NO2", category: "Amino acids", cp: "s/d", peaks: [[3080, 0.68, 140, "N-H str"], [2970, 0.35, 40, "C-H"], [1620, 0.92, 32, "COO⁻ asym"], [1520, 0.48, 28, "NH3⁺ bend"], [1415, 0.65, 28, "COO⁻ sym"], [1360, 0.35, 24, "CH3 bend"]] },
+  { id: "urea", name: "Urea", formula: "CH4N2O", category: "Biomolecules", cp: "1.33 kJ/kg·K", peaks: [[3430, 0.78, 80, "N-H str"], [3330, 0.72, 75, "N-H str"], [1680, 0.40, 35, "C=O"], [1625, 1.05, 32, "N-H bend"], [1465, 0.52, 28, "C-N str"]] },
+  { id: "citric_acid", name: "Citric acid", formula: "C6H8O7", category: "Acids", cp: "s/d", peaks: [[3300, 0.85, 200, "O-H broad"], [2940, 0.28, 40, "C-H"], [1750, 0.48, 30, "C=O COOH"], [1710, 1.05, 32, "C=O COOH"], [1390, 0.42, 28, "O-H bend"], [1210, 0.62, 30, "C-O"]] },
+  // Pharmaceuticals
+  { id: "aspirin", name: "Aspirin", formula: "C9H8O4", category: "Pharmaceuticals", cp: "s/d", peaks: [[3000, 0.30, 100, "O-H acid"], [1755, 0.88, 28, "C=O ester"], [1690, 0.95, 30, "C=O acid"], [1605, 0.35, 24, "C=C arom"], [1220, 0.72, 30, "C-O ester"], [755, 0.40, 20, "C-H oop"]] },
+  { id: "caffeine", name: "Caffeine", formula: "C8H10N4O2", category: "Pharmaceuticals", cp: "s/d", peaks: [[3110, 0.22, 30, "C-H arom"], [2950, 0.28, 35, "C-H alkyl"], [1700, 0.95, 28, "C=O"], [1650, 0.85, 30, "C=O"], [1545, 0.65, 28, "C=N / C=C"], [1235, 0.48, 28, "C-N"]] },
+  { id: "paracetamol", name: "Paracetamol", formula: "C8H9NO2", category: "Pharmaceuticals", cp: "s/d", peaks: [[3325, 0.62, 65, "N-H"], [3160, 0.48, 80, "O-H phenol"], [1655, 0.92, 30, "C=O amide"], [1610, 0.55, 26, "C=C arom"], [1560, 0.68, 28, "N-H bend"], [1510, 0.52, 25, "C=C arom"], [1240, 0.58, 28, "C-O"]] },
+  // Common solvents
+  { id: "chloroform", name: "Chloroform", formula: "CHCl3", category: "Solvents", cp: "0.96 kJ/kg·K", peaks: [[3020, 0.38, 25, "C-H str"], [1216, 0.45, 30, "C-H bend"], [760, 0.95, 28, "C-Cl str"]] },
+  { id: "dichloromethane", name: "Dichloromethane", formula: "CH2Cl2", category: "Solvents", cp: "1.19 kJ/kg·K", peaks: [[3050, 0.42, 28, "C-H str"], [2990, 0.38, 28, "C-H str"], [1265, 0.50, 28, "CH2 bend"], [740, 0.88, 30, "C-Cl str"]] },
+  { id: "hexane", name: "Hexane", formula: "C6H14", category: "Solvents", cp: "2.26 kJ/kg·K", peaks: [[2960, 0.85, 30, "CH3 asym"], [2930, 0.78, 28, "CH2 asym"], [2870, 0.55, 25, "CH3 sym"], [2860, 0.52, 25, "CH2 sym"], [1460, 0.45, 24, "CH2 bend"], [1380, 0.32, 22, "CH3 bend"]] },
+  { id: "thf", name: "Tetrahydrofuran", formula: "C4H8O", category: "Solvents", cp: "1.72 kJ/kg·K", peaks: [[2970, 0.58, 30, "C-H str"], [2860, 0.50, 28, "C-H str"], [1460, 0.28, 24, "CH2 bend"], [1070, 0.88, 35, "C-O-C asym"], [905, 0.42, 25, "ring str"]] },
+  // Food & Environment
+  { id: "sucrose", name: "Sucrose", formula: "C12H22O11", category: "Biomolecules", cp: "1.24 kJ/kg·K", peaks: [[3400, 0.92, 160, "O-H broad"], [2930, 0.30, 38, "C-H"], [1430, 0.25, 28, "C-H bend"], [1050, 0.85, 40, "C-O"], [995, 0.72, 32, "C-O"], [925, 0.45, 28, "C-O-C"]] },
+  { id: "starch", name: "Starch", formula: "(C6H10O5)n", category: "Biopolymers", cp: "s/d", peaks: [[3350, 0.88, 150, "O-H"], [2930, 0.32, 38, "C-H"], [1640, 0.22, 40, "absorbed H2O"], [1150, 0.52, 30, "C-O-C glycosidic"], [1080, 0.75, 35, "C-O"], [1020, 0.68, 32, "C-O"], [860, 0.28, 22, "C-H anomeric"]] },
+  { id: "chitin", name: "Chitin", formula: "(C8H13NO5)n", category: "Biopolymers", cp: "s/d", peaks: [[3440, 0.55, 65, "N-H"], [3260, 0.72, 120, "O-H"], [2920, 0.32, 35, "C-H"], [1660, 0.85, 30, "C=O amide I"], [1560, 0.68, 28, "N-H amide II"], [1070, 0.72, 35, "C-O"], [900, 0.28, 22, "glycosidic"]] },
+  // Inorganic / Environmental
+  { id: "calcium_sulfate", name: "Calcium sulfate (anhydrite)", formula: "CaSO4", category: "Minerals", cp: "0.73 kJ/kg·K", peaks: [[1150, 0.92, 55, "SO4 v3 asym"], [1120, 0.80, 45, "SO4 v3"], [680, 0.55, 30, "SO4 v4"], [595, 0.48, 28, "SO4 v4"]] },
+  { id: "sodium_carbonate", name: "Sodium carbonate", formula: "Na2CO3", category: "Minerals", cp: "1.04 kJ/kg·K", peaks: [[1440, 0.95, 75, "CO3 v3 asym"], [880, 0.55, 25, "CO3 v2 OOP"], [705, 0.35, 22, "CO3 v4 bend"]] },
+  { id: "titanium_dioxide", name: "Titanium dioxide", formula: "TiO2", category: "Inorganic oxides", cp: "0.69 kJ/kg·K", peaks: [[3400, 0.22, 140, "surface O-H"], [1630, 0.15, 45, "H2O bend"], [650, 0.82, 80, "Ti-O str"], [500, 0.68, 60, "Ti-O-Ti"]] },
+  { id: "nylon_6", name: "Nylon 6", formula: "(C6H11NO)n", category: "Polymers", cp: "1.70 kJ/kg·K", peaks: [[3300, 0.72, 55, "N-H str"], [3080, 0.28, 40, "N-H overtone"], [2930, 0.55, 30, "CH2 asym"], [2860, 0.42, 28, "CH2 sym"], [1640, 0.95, 30, "C=O amide I"], [1540, 0.78, 28, "N-H amide II"], [1260, 0.38, 25, "C-N amide III"]] },
+  { id: "formic_acid", name: "Formic acid", formula: "CH2O2", category: "Acids", cp: "2.17 kJ/kg·K", peaks: [[3100, 0.70, 250, "O-H broad"], [2940, 0.35, 35, "C-H str"], [1720, 1.00, 35, "C=O str"], [1380, 0.30, 25, "C-H bend"], [1210, 0.55, 30, "C-O str"]] },
+  { id: "nitric_acid", name: "Nitric acid", formula: "HNO3", category: "Acids", cp: "s/d", peaks: [[3400, 0.60, 200, "O-H broad"], [1670, 0.45, 35, "NO2 asym"], [1310, 0.88, 30, "NO2 sym"], [950, 0.55, 28, "N-O str"]] },
+  // Extended library — Alcohols & Ethers
+  { id: "butanol", name: "1-Butanol", formula: "C4H10O", category: "Alcohols", cp: "2.39 kJ/kg·K", peaks: [[3340, 0.90, 130, "O-H"], [2960, 0.52, 35, "C-H asym"], [2875, 0.40, 30, "C-H sym"], [1465, 0.28, 24, "CH2 bend"], [1060, 0.78, 38, "C-O"]] },
+  { id: "diethyl_ether", name: "Diethyl ether", formula: "C4H10O", category: "Solvents", cp: "2.37 kJ/kg·K", peaks: [[2980, 0.55, 30, "C-H asym"], [2870, 0.42, 28, "C-H sym"], [1450, 0.25, 24, "CH3 bend"], [1120, 0.92, 40, "C-O-C asym"], [845, 0.35, 25, "C-O-C sym"]] },
+  { id: "ethylene_glycol", name: "Ethylene glycol", formula: "C2H6O2", category: "Alcohols", cp: "2.35 kJ/kg·K", peaks: [[3350, 1.10, 160, "O-H"], [2940, 0.38, 38, "C-H"], [1460, 0.25, 24, "CH2"], [1085, 0.82, 38, "C-O"], [1040, 0.72, 34, "C-O"]] },
+  // Aldehydes
+  { id: "formaldehyde", name: "Formaldehyde", formula: "CH2O", category: "Ketones", cp: "s/d", peaks: [[2850, 0.40, 30, "C-H aldehyde"], [2780, 0.35, 28, "C-H aldehyde"], [1745, 1.00, 28, "C=O str"], [1500, 0.32, 25, "CH2 bend"]] },
+  { id: "benzaldehyde", name: "Benzaldehyde", formula: "C7H6O", category: "Aromatics", cp: "s/d", peaks: [[3060, 0.25, 28, "C-H arom"], [2820, 0.38, 22, "C-H aldehyde"], [2740, 0.28, 22, "C-H aldehyde"], [1700, 1.00, 30, "C=O"], [1600, 0.42, 24, "C=C ring"], [1460, 0.30, 24, "C=C ring"]] },
+  // Carboxylic acids
+  { id: "oxalic_acid", name: "Oxalic acid", formula: "C2H2O4", category: "Acids", cp: "s/d", peaks: [[3400, 0.65, 220, "O-H broad"], [1690, 0.95, 35, "C=O"], [1400, 0.50, 30, "C-O + O-H"], [1235, 0.60, 28, "C-O str"]] },
+  { id: "benzoic_acid", name: "Benzoic acid", formula: "C7H6O2", category: "Acids", cp: "s/d", peaks: [[3070, 0.28, 200, "O-H acid"], [1685, 1.00, 30, "C=O"], [1600, 0.35, 24, "C=C ring"], [1450, 0.30, 24, "C=C ring"], [1290, 0.58, 30, "C-O"], [710, 0.42, 20, "C-H oop"]] },
+  { id: "lactic_acid", name: "Lactic acid", formula: "C3H6O3", category: "Acids", cp: "s/d", peaks: [[3400, 0.82, 180, "O-H broad"], [2990, 0.28, 35, "C-H"], [1730, 0.95, 30, "C=O"], [1450, 0.25, 24, "CH3"], [1220, 0.55, 30, "C-O"], [1130, 0.48, 28, "C-O"]] },
+  // Amines & Amides
+  { id: "triethylamine", name: "Triethylamine", formula: "C6H15N", category: "Amines", cp: "s/d", peaks: [[2970, 0.60, 30, "C-H asym"], [2930, 0.45, 28, "C-H"], [2800, 0.32, 28, "C-H"], [1460, 0.30, 24, "CH3"], [1210, 0.42, 28, "C-N"], [1070, 0.55, 30, "C-N"]] },
+  { id: "dmf", name: "Dimethylformamide", formula: "C3H7NO", category: "Solvents", cp: "2.10 kJ/kg·K", peaks: [[2930, 0.30, 30, "C-H"], [1670, 1.05, 30, "C=O amide"], [1500, 0.32, 25, "C-N"], [1390, 0.42, 26, "CH3"], [1090, 0.35, 25, "C-N"]] },
+  { id: "acetamide", name: "Acetamide", formula: "C2H5NO", category: "Biomolecules", cp: "s/d", peaks: [[3370, 0.55, 60, "N-H str"], [3190, 0.48, 65, "N-H str"], [1680, 0.92, 30, "C=O amide I"], [1580, 0.58, 28, "N-H bend"], [1400, 0.35, 25, "C-N str"]] },
+  // Sugars & Natural compounds
+  { id: "fructose", name: "Fructose", formula: "C6H12O6", category: "Biomolecules", cp: "s/d", peaks: [[3380, 1.05, 150, "O-H"], [2940, 0.30, 38, "C-H"], [1430, 0.22, 26, "C-H bend"], [1065, 0.78, 38, "C-O"], [1020, 0.72, 35, "C-O"], [920, 0.40, 25, "C-O-C"]] },
+  { id: "cholesterol", name: "Cholesterol", formula: "C27H46O", category: "Biomolecules", cp: "s/d", peaks: [[3400, 0.55, 100, "O-H"], [2935, 0.88, 28, "C-H asym"], [2867, 0.72, 26, "C-H sym"], [1465, 0.38, 24, "CH2/CH3"], [1375, 0.32, 22, "CH3"], [1055, 0.45, 28, "C-O"]] },
+  { id: "oleic_acid", name: "Oleic acid", formula: "C18H34O2", category: "Biomolecules", cp: "s/d", peaks: [[3005, 0.28, 22, "=C-H"], [2925, 0.92, 28, "CH2 asym"], [2855, 0.80, 26, "CH2 sym"], [1710, 0.85, 30, "C=O"], [1465, 0.38, 24, "CH2 bend"], [1285, 0.42, 26, "C-O"], [720, 0.30, 20, "CH2 rock"]] },
+  { id: "stearic_acid", name: "Stearic acid", formula: "C18H36O2", category: "Biomolecules", cp: "s/d", peaks: [[2920, 0.95, 26, "CH2 asym"], [2850, 0.82, 24, "CH2 sym"], [1700, 0.88, 30, "C=O"], [1465, 0.40, 24, "CH2 bend"], [1300, 0.35, 26, "C-O"], [940, 0.22, 22, "O-H oop"], [720, 0.32, 20, "CH2 rock"]] },
+  // Rubbers & Industrial polymers
+  { id: "polyurethane", name: "Polyurethane", formula: "polymer", category: "Polymers", cp: "1.80 kJ/kg·K", peaks: [[3320, 0.58, 55, "N-H"], [2920, 0.42, 28, "C-H"], [1730, 0.95, 28, "C=O urethane"], [1530, 0.62, 28, "N-H bend + C-N"], [1220, 0.55, 30, "C-O-C"], [1070, 0.48, 28, "C-O"]] },
+  { id: "ptfe", name: "PTFE (Teflon)", formula: "(C2F4)n", category: "Polymers", cp: "1.00 kJ/kg·K", peaks: [[1205, 0.95, 35, "C-F asym str"], [1150, 0.88, 32, "C-F sym str"], [640, 0.35, 22, "CF2 wagging"], [555, 0.28, 20, "CF2 deformation"]] },
+  { id: "natural_rubber", name: "Natural rubber (polyisoprene)", formula: "(C5H8)n", category: "Polymers", cp: "s/d", peaks: [[3035, 0.22, 22, "=C-H"], [2960, 0.72, 28, "CH3 asym"], [2920, 0.65, 26, "CH2 asym"], [2855, 0.48, 24, "CH2 sym"], [1665, 0.28, 22, "C=C"], [1450, 0.42, 24, "CH2/CH3"], [1375, 0.38, 22, "CH3"], [835, 0.55, 20, "=C-H oop"]] },
+  // Environmental & Water treatment
+  { id: "sodium_sulfate", name: "Sodium sulfate", formula: "Na2SO4", category: "Minerals", cp: "0.91 kJ/kg·K", peaks: [[1120, 0.92, 55, "SO4 v3 asym"], [640, 0.48, 28, "SO4 v4"], [615, 0.42, 25, "SO4 v4"]] },
+  { id: "potassium_nitrate", name: "Potassium nitrate", formula: "KNO3", category: "Minerals", cp: "s/d", peaks: [[1385, 0.95, 40, "NO3 v3 asym"], [1350, 0.48, 35, "NO3 v3"], [830, 0.55, 22, "NO3 v2 OOP"]] },
+  { id: "sodium_hydroxide", name: "Sodium hydroxide", formula: "NaOH", category: "Minerals", cp: "s/d", peaks: [[3640, 0.85, 45, "O-H free"], [3400, 0.55, 150, "O-H bonded"]] },
+  { id: "iron_oxide", name: "Iron oxide (hematite)", formula: "Fe2O3", category: "Inorganic oxides", cp: "0.65 kJ/kg·K", peaks: [[540, 0.88, 50, "Fe-O str"], [470, 0.72, 45, "Fe-O str"], [390, 0.42, 35, "Fe-O bend"]] },
+  { id: "zinc_oxide", name: "Zinc oxide", formula: "ZnO", category: "Inorganic oxides", cp: "0.49 kJ/kg·K", peaks: [[500, 0.78, 55, "Zn-O str"], [420, 0.55, 40, "Zn-O str"]] },
+  // More gases
+  { id: "carbon_monoxide", name: "Carbon monoxide", formula: "CO", category: "Gases and vapors", cp: "1.04 kJ/kg·K", peaks: [[2143, 0.95, 18, "C≡O str"]] },
+  { id: "nitrous_oxide", name: "Nitrous oxide", formula: "N2O", category: "Gases and vapors", cp: "s/d", peaks: [[2224, 0.88, 20, "N-N-O asym"], [1285, 0.62, 22, "N-N-O sym"], [590, 0.35, 18, "N-N-O bend"]] },
+  { id: "ammonia", name: "Ammonia", formula: "NH3", category: "Gases and vapors", cp: "2.06 kJ/kg·K", peaks: [[3335, 0.72, 35, "N-H asym str"], [3215, 0.55, 38, "N-H sym str"], [1628, 0.42, 28, "N-H bend"], [950, 0.88, 22, "N-H wag"]] },
+  { id: "sulfur_dioxide", name: "Sulfur dioxide", formula: "SO2", category: "Gases and vapors", cp: "s/d", peaks: [[1350, 0.92, 25, "S=O asym str"], [1150, 0.78, 22, "S=O sym str"], [518, 0.42, 18, "O-S-O bend"]] },
+  // Proteins & DNA related
+  { id: "albumin", name: "Albumin (protein)", formula: "protein", category: "Biomolecules", cp: "s/d", peaks: [[3300, 0.65, 100, "N-H / O-H"], [2930, 0.25, 35, "C-H"], [1650, 0.95, 32, "Amide I C=O"], [1540, 0.78, 28, "Amide II N-H"], [1240, 0.38, 28, "Amide III"]] },
+  { id: "dna", name: "DNA", formula: "nucleic acid", category: "Biomolecules", cp: "s/d", peaks: [[3400, 0.58, 140, "O-H / N-H"], [2930, 0.20, 35, "C-H"], [1700, 0.38, 28, "C=O base"], [1650, 0.55, 30, "C=O / C=N base"], [1225, 0.72, 30, "PO2 asym"], [1085, 0.82, 30, "PO2 sym"], [1050, 0.55, 28, "C-O sugar"]] },
+  // Common lab / Industrial
+  { id: "sodium_chloride", name: "Sodium chloride", formula: "NaCl", category: "Minerals", cp: "0.86 kJ/kg·K", peaks: [] },
+  { id: "potassium_bromide", name: "Potassium bromide", formula: "KBr", category: "Minerals", cp: "0.44 kJ/kg·K", peaks: [] },
+  { id: "epoxy_resin", name: "Epoxy resin (DGEBA)", formula: "polymer", category: "Polymers", cp: "1.10 kJ/kg·K", peaks: [[3500, 0.25, 80, "O-H"], [3050, 0.18, 25, "C-H arom"], [2920, 0.42, 28, "C-H"], [1608, 0.38, 24, "C=C arom"], [1510, 0.55, 25, "C=C arom"], [1245, 0.72, 30, "C-O-C aryl"], [1035, 0.62, 28, "C-O-C"], [830, 0.42, 22, "epoxy ring"]] },
+  { id: "silicone", name: "Silicone (PDMS)", formula: "(C2H6OSi)n", category: "Polymers", cp: "1.46 kJ/kg·K", peaks: [[2960, 0.42, 25, "C-H in CH3"], [1260, 0.72, 22, "Si-CH3 sym def"], [1090, 0.88, 40, "Si-O-Si asym"], [1020, 0.82, 35, "Si-O-Si asym"], [800, 0.68, 22, "Si-C str + CH3 rock"]] },
+];
+
+const LIBRARY = BASE_LIBRARY_RAW.map((c) => ({
+  ...c,
+  peaks: c.peaks.map(([x, a, w, label]) => ({ x, a, w, label })),
+}));
+
+const STORAGE_KEY = "ftir_external_library_clean_v1";
+const STORAGE_INFO = "ftir_external_info_clean_v1";
+const GRAPH_BG_PRESETS = {
+  light: {
+    figureBg: "#ffffff",
+    axisColor: "#0f172a",
+    gridColor: "#dbe4f0",
+    curveColor: "#0f172a",
+    legendFill: "#f8fafc",
+    legendText: "#0f172a",
+    legendStroke: "#334155",
+    markerFill: "#e2e8f0",
+    colors: ["#2563eb", "#ef4444", "#10b981", "#8b5cf6", "#f59e0b", "#06b6d4", "#ec4899", "#84cc16"],
+    unknownStroke: "#f97316",
+  },
+  dark: {
+    figureBg: "#07111f",
+    axisColor: "#f8fafc",
+    gridColor: "#1e3a5f",
+    curveColor: "#e2e8f0",
+    legendFill: "#0f172a",
+    legendText: "#f8fafc",
+    legendStroke: "#cbd5e1",
+    markerFill: "#0b2443",
+    colors: ["#60a5fa", "#f87171", "#34d399", "#c084fc", "#fbbf24", "#22d3ee", "#fb7185", "#a3e635"],
+    unknownStroke: "#fbbf24",
+  },
+};
+
+function colorForIndex(index, bgMode) {
+  const preset = GRAPH_BG_PRESETS[bgMode] || GRAPH_BG_PRESETS.light;
+  return preset.colors[index % preset.colors.length];
+}
+
+function gaussian(x, mu, sigma) {
+  return Math.exp(-0.5 * Math.pow((x - mu) / Math.max(1, sigma), 2));
+}
+
+function pseudoRandom(seed) {
+  const v = Math.sin(seed * 9999) * 10000;
+  return v - Math.floor(v);
+}
+
+function safeGet(key, fallback) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function safeSet(key, value) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function normalizeCompound(item, index = 0, source = "external") {
+  const raw = Array.isArray(item?.peaks) ? item.peaks : [];
+  const peaks = raw
+    .map((p) => ({
+      x: Number(p?.x ?? p?.wavenumber ?? p?.[0]),
+      a: Number(p?.a ?? p?.intensity ?? p?.[1] ?? 0.5),
+      w: Number(p?.w ?? p?.width ?? p?.[2] ?? 30),
+      label: String(p?.label ?? p?.assignment ?? p?.[3] ?? "external"),
+    }))
+    .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.a) && Number.isFinite(p.w));
+
+  return {
+    id: String(item?.id || `ext_${index}`),
+    name: String(item?.name || `External ${index + 1}`),
+    formula: String(item?.formula || "s/d"),
+    category: String(item?.category || item?.domain || "External"),
+    cp: String(item?.cp || "s/d"),
+    source: String(item?.source || source),
+    peaks,
+  };
+}
+
+function smooth(values, radius) {
+  if (radius <= 1) return values;
+  return values.map((_, i) => {
+    let sum = 0;
+    let n = 0;
+    for (let j = i - radius; j <= i + radius; j += 1) {
+      if (j >= 0 && j < values.length) {
+        sum += values[j];
+        n += 1;
+      }
+    }
+    return sum / Math.max(1, n);
+  });
+}
+
+function generateSpectrum(compounds, selected, params) {
+  const xs = [];
+  for (let x = 4000; x >= 300; x -= 5) xs.push(x);
+
+  let ys = xs.map((x, i) => {
+    let y = 0;
+    for (const c of compounds) {
+      const amount = Number(selected[c.id] || 0);
+      if (amount <= 0) continue;
+      for (const p of c.peaks) {
+        y += amount * params.pathLength * p.a * gaussian(x, p.x + params.shift, p.w + params.broadening);
+      }
+    }
+    const base = params.baseline * (1 + 0.35 * Math.sin((x - 300) / 420)) + params.slope * ((x - 2200) / 2000);
+    const noise = (pseudoRandom(i + xs.length * 0.37) - 0.5) * params.noise;
+    return Math.max(0, y + base + noise);
+  });
+
+  ys = smooth(ys, Math.max(1, Math.round(params.resolution / 3)));
+  if (params.mode === "transmittance") ys = ys.map((a) => 100 * Math.pow(10, -a));
+
+  return xs.map((x, i) => ({ x, y: ys[i] }));
+}
+
+function normalizeY(data) {
+  if (!data.length) return [];
+  const max = Math.max(...data.map((d) => d.y));
+  const min = Math.min(...data.map((d) => d.y));
+  const range = max - min || 1;
+  return data.map((d) => ({ ...d, y: (d.y - min) / range }));
+}
+
+function detectPeaks(data, maxCount = 8, minSpacing = 85, mode = "absorbance") {
+  const normalized = normalizeY(data);
+  const signal = normalized.map((r) => ({ ...r, s: mode === "transmittance" ? 1 - r.y : r.y }));
+  const candidates = signal
+    .filter((r, i, arr) => i > 2 && i < arr.length - 3 && r.s > arr[i - 1].s && r.s > arr[i + 1].s && r.s > 0.16)
+    .sort((a, b) => b.s - a.s);
+
+  const picked = [];
+  for (const p of candidates) {
+    if (!picked.some((q) => Math.abs(q.x - p.x) < minSpacing)) picked.push({ x: p.x, y: p.s });
+    if (picked.length >= maxCount) break;
+  }
+  return picked.sort((a, b) => b.x - a.x);
+}
+
+function interpretPeak(x) {
+  const rules = [
+    [3200, 3700, "O-H / N-H"],
+    [3000, 3100, "C-H sp2"],
+    [2850, 3000, "C-H sp3"],
+    [2220, 2265, "C≡N / nitrile"],
+    [1650, 1820, "C=O"],
+    [1500, 1650, "C=C / amide / H2O"],
+    [1300, 1500, "CH / CO3 / NO3"],
+    [1000, 1300, "C-O / S=O / Si-O / PO4"],
+    [650, 900, "fingerprint"],
+    [250, 650, "M-O / inorganic lattice"],
+  ];
+  const match = rules.find(([a, b]) => x >= a && x <= b);
+  return { label: match ? match[2] : "fingerprint" };
+}
+
+function parseFileText(text) {
+  const rows = String(text || "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  const xy = [];
+  for (const line of rows) {
+    const upper = line.toUpperCase();
+    if (line.startsWith("#") || upper.includes("TITLE") || upper.includes("END") || upper.includes("XYDATA") || upper.includes("JCAMP")) continue;
+    const normalizedLine = line.replace(/;/g, " ").replace(/\t/g, " ").replace(/\s+/g, " ").trim();
+    let parts = normalizedLine.split(" ");
+    if (parts.length < 2 && normalizedLine.includes(",")) parts = normalizedLine.split(",");
+    const nums = parts.map((v) => Number(String(v).replace(",", "."))).filter(Number.isFinite);
+    if (nums.length >= 2) xy.push({ x: nums[0], y: nums[1] });
+  }
+
+  const clean = xy.sort((a, b) => b.x - a.x).filter((d) => d.x <= 4200 && d.x >= 250);
+  return clean.length > 8 ? clean : null;
+}
+
+function similarity(a, b) {
+  const na = normalizeY(a);
+  const nb = normalizeY(b);
+  let dot = 0;
+  let aa = 0;
+  let bb = 0;
+  for (let i = 0; i < Math.min(na.length, nb.length); i += 1) {
+    dot += na[i].y * nb[i].y;
+    aa += na[i].y ** 2;
+    bb += nb[i].y ** 2;
+  }
+  return dot / (Math.sqrt(aa) * Math.sqrt(bb) || 1);
+}
+
+function dataUrl(mime, text) {
+  try {
+    return "data:" + mime + ";charset=utf-8;base64," + btoa(unescape(encodeURIComponent(String(text))));
+  } catch {
+    return "data:" + mime + ";charset=utf-8," + encodeURIComponent(String(text));
+  }
+}
+
+function matchDetails(unknown, compound, mode = "absorbance") {
+  const exp = detectPeaks(unknown || [], 16, 70, mode);
+  const matched = [];
+  const missing = [];
+  for (const ref of compound.peaks || []) {
+    const best = exp.map((p) => ({ p, delta: Math.abs(p.x - ref.x) })).sort((a, b) => a.delta - b.delta)[0];
+    if (best && best.delta <= 45) matched.push({ ref: ref.x, exp: best.p.x, label: ref.label || interpretPeak(ref.x).label });
+    else missing.push({ ref: ref.x, label: ref.label || interpretPeak(ref.x).label });
+  }
+  return { matched, missing, source: compound.source || "internal library" };
+}
+
+function filterDomain(compounds, domain) {
+  if (domain === "automatic") return compounds;
+  return compounds.filter((c) => {
+    const cat = c.category.toLowerCase();
+    if (domain === "organics") return ["alcohols", "ketones", "esters", "acids", "aromatics", "amines", "nitriles", "sulfur compounds", "biomolecules", "biomass pyrolysis", "amino acids", "pharmaceuticals", "solvents"].includes(cat);
+    if (domain === "polymers") return cat.includes("polymer");
+    if (domain === "minerals") return cat.includes("mineral") || cat.includes("oxide");
+    if (domain === "gases") return cat.includes("gases") || cat.includes("vapors");
+    if (domain === "pyrolysis") return cat.includes("biomass");
+    return true;
+  });
+}
+
+function estimateComposition(unknown, compounds, params, domain) {
+  if (!unknown) return [];
+  const candidates = filterDomain(compounds, domain)
+    .map((c) => {
+      const ref = generateSpectrum([c], { [c.id]: 1 }, { ...params, noise: 0, baseline: 0, slope: 0, shift: 0, broadening: 0 });
+      const score = Math.max(0, similarity(unknown, ref));
+      const details = matchDetails(unknown, c, params.mode);
+      const totalPeaks = Math.max(1, details.matched.length + details.missing.length);
+      const peakFactor = details.matched.length / totalPeaks;
+      const weight = Math.pow(score, 2) * (0.55 + 0.45 * peakFactor);
+      return { compound: c, score, weight, matched: details.matched.length, missing: details.missing.length, source: details.source };
+    })
+    .filter((r) => r.score > 0.05)
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, 8);
+
+  const total = candidates.reduce((s, r) => s + r.weight, 0) || 1;
+  return candidates.map((r) => ({ ...r, percent: (r.weight / total) * 100 })).filter((r) => r.percent >= 1);
+}
+
+function numberFormat(value, step) {
+  return Number(value).toFixed(step < 0.01 ? 3 : 2);
+}
+
+function FTIRWebSimulator() {
+  const [appMode, setAppMode] = useState(null);
+  const [mode, setMode] = useState("absorbance");
+  const [noise, setNoise] = useState(0.012);
+  const [baseline, setBaseline] = useState(0.025);
+  const [slope, setSlope] = useState(0);
+  const [pathLength, setPathLength] = useState(1);
+  const [resolution, setResolution] = useState(4);
+  const [shift, setShift] = useState(0);
+  const [broadening, setBroadening] = useState(0);
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("All");
+  const [selected, setSelected] = useState({});
+  const [external, setExternal] = useState(() => {
+    const saved = safeGet(STORAGE_KEY, []);
+    return Array.isArray(saved)
+      ? saved.map((x, i) => normalizeCompound(x, i, "localStorage")).filter((c) => c.peaks.length > 0).slice(0, 1200)
+      : [];
+  });
+  const [externalInfo, setExternalInfo] = useState(() => safeGet(STORAGE_INFO, null));
+  const [unknown, setUnknown] = useState(null);
+  const [identifyDomain, setIdentifyDomain] = useState("automatic");
+  const [overlayUrl, setOverlayUrl] = useState(null);
+  const [overlayName, setOverlayName] = useState("");
+  const [overlayOpacity, setOverlayOpacity] = useState(0.45);
+  const [overlayScale, setOverlayScale] = useState(1);
+  const [overlayScaleX, setOverlayScaleX] = useState(1);
+  const [overlayScaleY, setOverlayScaleY] = useState(1);
+  const [overlayX, setOverlayX] = useState(0);
+  const [overlayY, setOverlayY] = useState(0);
+  const [overlayRotate, setOverlayRotate] = useState(0);
+  const [viewMode, setViewMode] = useState("combined");
+  const [colorMode, setColorMode] = useState("single");
+  const [showPeakLabels, setShowPeakLabels] = useState(false);
+  const [showLegendBox, setShowLegendBox] = useState(true);
+  const [zoomX, setZoomX] = useState(1);
+  const [zoomY, setZoomY] = useState(1);
+  const [panX, setPanX] = useState(0);
+  const [gridDensity, setGridDensity] = useState(2);
+  const [axisFontSize, setAxisFontSize] = useState(12);
+  const [axisFontFamily, setAxisFontFamily] = useState("Arial");
+  const [legendX, setLegendX] = useState(640);
+  const [legendY, setLegendY] = useState(26);
+  const [compoundLegendX, setCompoundLegendX] = useState(46);
+  const [compoundLegendY, setCompoundLegendY] = useState(28);
+  const [dragLegend, setDragLegend] = useState(false);
+  const [dragCompoundLegend, setDragCompoundLegend] = useState(false);
+  const [markerLimit, setMarkerLimit] = useState(5);
+  const [markerSpacing, setMarkerSpacing] = useState(95);
+  const [graphBgMode, setGraphBgMode] = useState("light");
+  const [figureBg, setFigureBg] = useState(GRAPH_BG_PRESETS.light.figureBg);
+  const [gridColor, setGridColor] = useState(GRAPH_BG_PRESETS.light.gridColor);
+  const [axisColor, setAxisColor] = useState(GRAPH_BG_PRESETS.light.axisColor);
+  const [curveColor, setCurveColor] = useState(GRAPH_BG_PRESETS.light.curveColor);
+  const [legendOpacity, setLegendOpacity] = useState(0.84);
+  const [compoundLegendOpacity, setCompoundLegendOpacity] = useState(0.78);
+  const [xAxisTitle, setXAxisTitle] = useState("Wavenumber / cm⁻¹");
+  const [yAxisTitle, setYAxisTitle] = useState("Absorbance");
+  const [yTitleVertical, setYTitleVertical] = useState(false);
+  const [downloadLinks, setDownloadLinks] = useState({ csv: null, svg: null, png: null });
+  const [pasteText, setPasteText] = useState("");
+
+  const compounds = useMemo(() => [...LIBRARY, ...external], [external]);
+  const categories = useMemo(() => ["All", ...Array.from(new Set(compounds.map((c) => c.category))).sort()], [compounds]);
+  const params = { mode, noise, baseline, slope, pathLength, resolution, shift, broadening };
+  const selectedCompounds = useMemo(() => compounds.filter((c) => Number(selected[c.id] || 0) > 0), [compounds, selected]);
+  const totalSelected = selectedCompounds.reduce((s, c) => s + Number(selected[c.id] || 0), 0);
+  const visibleCompounds = useMemo(
+    () => compounds.filter((c) => (category === "All" || c.category === category) && (!search || `${c.name} ${c.formula} ${c.category}`.toLowerCase().includes(search.toLowerCase()))),
+    [compounds, category, search]
+  );
+  const data = useMemo(() => generateSpectrum(compounds, selected, params), [compounds, selected, mode, noise, baseline, slope, pathLength, resolution, shift, broadening]);
+  const componentSpectra = useMemo(
+    () => selectedCompounds.map((c, index) => ({ compound: c, index, data: generateSpectrum([c], { [c.id]: Number(selected[c.id] || 0) }, params) })),
+    [selectedCompounds, selected, mode, noise, baseline, slope, pathLength, resolution, shift, broadening]
+  );
+  const matches = useMemo(() => {
+    if (!unknown) return [];
+    return filterDomain(compounds, identifyDomain)
+      .map((c) => {
+        const ref = generateSpectrum([c], { [c.id]: 1 }, { ...params, noise: 0, baseline: 0, slope: 0, shift: 0, broadening: 0 });
+        return { compound: c, score: similarity(unknown, ref) };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 12);
+  }, [unknown, compounds, identifyDomain, mode]);
+  const compositionEstimates = useMemo(() => estimateComposition(unknown, compounds, params, identifyDomain), [unknown, compounds, identifyDomain, mode]);
+
+  function addCompound(id) {
+    setSelected((old) => ({ ...old, [id]: old[id] || 0.35 }));
+  }
+
+  function removeCompound(id) {
+    setSelected((old) => {
+      const next = { ...old };
+      delete next[id];
+      return next;
+    });
+  }
+
+  function updateConcentration(id, value) {
+    const v = Number(value);
+    setSelected((old) => {
+      const next = { ...old, [id]: v };
+      if (v <= 0) delete next[id];
+      return next;
+    });
+  }
+
+  function reset() {
+    setSelected({});
+    setUnknown(null);
+    setSearch("");
+    setCategory("All");
+  }
+
+  function triggerDownload(url, filename) {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  function getSvgString() {
+    const svg = document.getElementById("ftir-chart-svg");
+    if (!svg) return null;
+    const clone = svg.cloneNode(true);
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    clone.setAttribute("width", "1960");
+    clone.setAttribute("height", "860");
+    return new XMLSerializer().serializeToString(clone);
+  }
+
+  function exportCSV() {
+    const rows = data.map((d) => `${d.x.toFixed(2)},${d.y.toFixed(6)},${mode}`);
+    const body = ["wavenumber_cm-1,intensity,mode", ...rows].join("\n");
+    const url = dataUrl("text/csv", body);
+    setDownloadLinks((o) => ({ ...o, csv: url }));
+    triggerDownload(url, "ftir_spectrum_data.csv");
+  }
+
+  function exportSVG() {
+    const source = getSvgString();
+    if (!source) return alert("No se encontró el gráfico.");
+    const url = dataUrl("image/svg+xml", source);
+    setDownloadLinks((o) => ({ ...o, svg: url }));
+    triggerDownload(url, "ftir_spectrum_figure.svg");
+  }
+
+  function exportPNG() {
+    const source = getSvgString();
+    if (!source) return alert("No se encontró el gráfico.");
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 1960;
+      canvas.height = 860;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = figureBg || "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const url = canvas.toDataURL("image/png");
+      setDownloadLinks((o) => ({ ...o, png: url }));
+      triggerDownload(url, "ftir_spectrum_figure.png");
+    };
+    img.onerror = () => alert("No se pudo exportar PNG. Prueba SVG.");
+    img.src = dataUrl("image/svg+xml", source);
+  }
+
+  function exportPDF() {
+    const source = getSvgString();
+    if (!source) return alert("No se encontró el gráfico.");
+    const imgUrl = dataUrl("image/svg+xml", source);
+    const win = window.open("", "_blank");
+    if (!win) return alert("El navegador bloqueó la ventana de impresión.");
+    win.document.write(`<!doctype html><html><head><title>FTIR PDF</title><style>html,body{margin:0;padding:0;background:white}img{display:block;width:100%;height:auto}</style></head><body><img src="${imgUrl}" onload="window.print();setTimeout(()=>window.close(),400);" /></body></html>`);
+    win.document.close();
+  }
+
+  function handleOverlayImport(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setOverlayUrl(String(reader.result || ""));
+      setOverlayName(file.name);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function clearOverlay() {
+    setOverlayUrl(null);
+    setOverlayName("");
+  }
+
+  function handleSpectrumImport(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const parsed = parseFileText(String(reader.result || ""));
+      if (!parsed) return alert("No se pudo leer el archivo.");
+      setUnknown(parsed);
+    };
+    reader.readAsText(file);
+  }
+
+  function handlePasteSpectrum() {
+    const parsed = parseFileText(pasteText);
+    if (!parsed) return alert("No se detectaron datos válidos. Pega dos columnas: número de onda e intensidad.");
+    setUnknown(parsed);
+  }
+
+  function handleExternalLibraryImport(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const json = JSON.parse(String(reader.result || "{}"));
+        const entries = Array.isArray(json) ? json : Array.isArray(json.compounds) ? json.compounds : [];
+        const normalized = entries.map((item, index) => normalizeCompound(item, index, json.source || file.name)).filter((c) => c.peaks.length > 0);
+        if (!normalized.length) return alert("El JSON no contiene compuestos válidos con picos.");
+        const byId = new Map();
+        [...external, ...normalized].forEach((c) => byId.set(c.id, c));
+        const merged = Array.from(byId.values()).slice(0, 1200);
+        setExternal(merged);
+        const ok = safeSet(STORAGE_KEY, merged);
+        const info = { name: file.name, count: normalized.length, total: merged.length, persisted: ok };
+        setExternalInfo(info);
+        safeSet(STORAGE_INFO, info);
+      } catch {
+        alert("No se pudo leer la biblioteca JSON.");
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function buildSimulationFromIdentification() {
+    if (!compositionEstimates.length) return alert("Primero importa un espectro para estimar la composición.");
+    const next = {};
+    compositionEstimates.slice(0, 6).forEach((r) => {
+      next[r.compound.id] = Math.max(0.05, Number((r.percent / 100).toFixed(3)));
+    });
+    setSelected(next);
+    setColorMode("compound");
+    setShowPeakLabels(true);
+    setViewMode("combined");
+    setAppMode("simulate");
+  }
+
+  function applyGraphPreset(modeName) {
+    const preset = GRAPH_BG_PRESETS[modeName] || GRAPH_BG_PRESETS.light;
+    setGraphBgMode(modeName);
+    setFigureBg(preset.figureBg);
+    setAxisColor(preset.axisColor);
+    setGridColor(preset.gridColor);
+    setCurveColor(preset.curveColor);
+    setLegendOpacity(modeName === "dark" ? 0.42 : 0.84);
+    setCompoundLegendOpacity(modeName === "dark" ? 0.34 : 0.78);
+  }
+
+  if (!appMode) {
+    return <StartScreen onSelect={setAppMode} />;
+  }
+
+  if (appMode === "identify") {
+    return (
+      <IdentifyScreen
+        unknown={unknown}
+        setUnknown={setUnknown}
+        handleSpectrumImport={handleSpectrumImport}
+        pasteText={pasteText}
+        setPasteText={setPasteText}
+        handlePasteSpectrum={handlePasteSpectrum}
+        handleExternalLibraryImport={handleExternalLibraryImport}
+        externalInfo={externalInfo}
+        identifyDomain={identifyDomain}
+        setIdentifyDomain={setIdentifyDomain}
+        matches={matches}
+        compositionEstimates={compositionEstimates}
+        buildSimulationFromIdentification={buildSimulationFromIdentification}
+        setAppMode={setAppMode}
+        mode={mode}
+      />
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-4">
+      <div className="max-w-[1700px] mx-auto h-screen overflow-hidden flex flex-col gap-4">
+        <TopBar
+          selectedCount={selectedCompounds.length}
+          viewMode={viewMode}
+          exportCSV={exportCSV}
+          exportSVG={exportSVG}
+          exportPNG={exportPNG}
+          exportPDF={exportPDF}
+          reset={reset}
+          downloadLinks={downloadLinks}
+          setAppMode={setAppMode}
+        />
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 flex-1 min-h-0">
+          <LibraryPanel
+            compounds={visibleCompounds}
+            categories={categories}
+            search={search}
+            setSearch={setSearch}
+            category={category}
+            setCategory={setCategory}
+            selected={selected}
+            addCompound={addCompound}
+            removeCompound={removeCompound}
+            selectedCompounds={selectedCompounds}
+            totalSelected={totalSelected}
+            updateConcentration={updateConcentration}
+            graphBgMode={graphBgMode}
+            colorMode={colorMode}
+            allCompounds={compounds}
+          />
+          <main className="xl:col-span-6 flex flex-col gap-4 min-h-0 h-full">
+            <GraphSection
+              overlayName={overlayName}
+              mode={mode}
+              setMode={setMode}
+              viewMode={viewMode}
+              setViewMode={setViewMode}
+              colorMode={colorMode}
+              setColorMode={setColorMode}
+              showPeakLabels={showPeakLabels}
+              setShowPeakLabels={setShowPeakLabels}
+              data={data}
+              unknown={unknown}
+              overlayUrl={overlayUrl}
+              overlayOpacity={overlayOpacity}
+              overlayScale={overlayScale}
+              overlayScaleX={overlayScaleX}
+              overlayScaleY={overlayScaleY}
+              overlayX={overlayX}
+              overlayY={overlayY}
+              overlayRotate={overlayRotate}
+              componentSpectra={componentSpectra}
+              zoomX={zoomX}
+              setZoomX={setZoomX}
+              zoomY={zoomY}
+              setZoomY={setZoomY}
+              panX={panX}
+              setPanX={setPanX}
+              gridDensity={gridDensity}
+              axisFontSize={axisFontSize}
+              axisFontFamily={axisFontFamily}
+              legendX={legendX}
+              legendY={legendY}
+              setLegendX={setLegendX}
+              setLegendY={setLegendY}
+              dragLegend={dragLegend}
+              setDragLegend={setDragLegend}
+              compoundLegendX={compoundLegendX}
+              compoundLegendY={compoundLegendY}
+              setCompoundLegendX={setCompoundLegendX}
+              setCompoundLegendY={setCompoundLegendY}
+              dragCompoundLegend={dragCompoundLegend}
+              setDragCompoundLegend={setDragCompoundLegend}
+              markerLimit={markerLimit}
+              markerSpacing={markerSpacing}
+              showLegendBox={showLegendBox}
+              curveColor={curveColor}
+              gridColor={gridColor}
+              axisColor={axisColor}
+              figureBg={figureBg}
+              graphBgMode={graphBgMode}
+              legendOpacity={legendOpacity}
+              compoundLegendOpacity={compoundLegendOpacity}
+              xAxisTitle={xAxisTitle}
+              yAxisTitle={yAxisTitle}
+              yTitleVertical={yTitleVertical}
+            />
+            <PeakPanel peaks={detectPeaks(data, 12, 80, mode)} />
+          </main>
+          <ControlPanel
+            zoomX={zoomX}
+            setZoomX={setZoomX}
+            zoomY={zoomY}
+            setZoomY={setZoomY}
+            panX={panX}
+            setPanX={setPanX}
+            gridDensity={gridDensity}
+            setGridDensity={setGridDensity}
+            axisFontSize={axisFontSize}
+            setAxisFontSize={setAxisFontSize}
+            axisFontFamily={axisFontFamily}
+            setAxisFontFamily={setAxisFontFamily}
+            markerLimit={markerLimit}
+            setMarkerLimit={setMarkerLimit}
+            markerSpacing={markerSpacing}
+            setMarkerSpacing={setMarkerSpacing}
+            showLegendBox={showLegendBox}
+            setShowLegendBox={setShowLegendBox}
+            setLegendX={setLegendX}
+            setLegendY={setLegendY}
+            setCompoundLegendX={setCompoundLegendX}
+            setCompoundLegendY={setCompoundLegendY}
+            curveColor={curveColor}
+            setCurveColor={setCurveColor}
+            applyGraphPreset={applyGraphPreset}
+            gridColor={gridColor}
+            setGridColor={setGridColor}
+            axisColor={axisColor}
+            setAxisColor={setAxisColor}
+            figureBg={figureBg}
+            setFigureBg={setFigureBg}
+            legendOpacity={legendOpacity}
+            setLegendOpacity={setLegendOpacity}
+            compoundLegendOpacity={compoundLegendOpacity}
+            setCompoundLegendOpacity={setCompoundLegendOpacity}
+            xAxisTitle={xAxisTitle}
+            setXAxisTitle={setXAxisTitle}
+            yAxisTitle={yAxisTitle}
+            setYAxisTitle={setYAxisTitle}
+            yTitleVertical={yTitleVertical}
+            setYTitleVertical={setYTitleVertical}
+            noise={noise}
+            setNoise={setNoise}
+            baseline={baseline}
+            setBaseline={setBaseline}
+            slope={slope}
+            setSlope={setSlope}
+            pathLength={pathLength}
+            setPathLength={setPathLength}
+            resolution={resolution}
+            setResolution={setResolution}
+            shift={shift}
+            setShift={setShift}
+            broadening={broadening}
+            setBroadening={setBroadening}
+            overlayName={overlayName}
+            overlayUrl={overlayUrl}
+            handleOverlayImport={handleOverlayImport}
+            clearOverlay={clearOverlay}
+            overlayOpacity={overlayOpacity}
+            setOverlayOpacity={setOverlayOpacity}
+            overlayScale={overlayScale}
+            setOverlayScale={setOverlayScale}
+            overlayScaleX={overlayScaleX}
+            setOverlayScaleX={setOverlayScaleX}
+            overlayScaleY={overlayScaleY}
+            setOverlayScaleY={setOverlayScaleY}
+            overlayX={overlayX}
+            setOverlayX={setOverlayX}
+            overlayY={overlayY}
+            setOverlayY={setOverlayY}
+            overlayRotate={overlayRotate}
+            setOverlayRotate={setOverlayRotate}
+            handleSpectrumImport={handleSpectrumImport}
+            pasteText={pasteText}
+            setPasteText={setPasteText}
+            handlePasteSpectrum={handlePasteSpectrum}
+            handleExternalLibraryImport={handleExternalLibraryImport}
+            externalInfo={externalInfo}
+            unknown={unknown}
+            setUnknown={setUnknown}
+            matches={matches}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StartScreen({ onSelect }) {
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6 relative overflow-hidden">
+      {/* Background gradient orbs */}
+      <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] rounded-full bg-emerald-500/5 blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-15%] right-[-8%] w-[400px] h-[400px] rounded-full bg-sky-500/5 blur-[100px] pointer-events-none" />
+
+      <div className="w-full max-w-5xl space-y-10 relative z-10">
+        <div className="text-center space-y-4 animate-fadeInUp">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs font-medium mb-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            Versión 2.0
+          </div>
+          <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">FTIR Web Simulator</h1>
+          <p className="text-slate-400 text-lg max-w-xl mx-auto">Plataforma interactiva para simulación e identificación de espectros infrarrojos por transformada de Fourier.</p>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-6">
+          <button onClick={() => onSelect("simulate")} className="group text-left rounded-3xl glass-panel p-8 shadow-2xl hover:border-emerald-500/40 transition-all duration-300 hover:shadow-emerald-500/10 hover:shadow-2xl animate-fadeInUp delay-1">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 flex items-center justify-center mb-5 group-hover:scale-110 transition-transform">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="text-emerald-400">
+                <path d="M3 3v18h18" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M7 16c1-3 2.5-8 5-8s2.5 5 4 5 2-3 4-6" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <div className="text-2xl font-bold mb-3 group-hover:text-emerald-200 transition-colors">Simular espectro FTIR</div>
+            <p className="text-slate-400 mb-5 text-sm leading-relaxed">Crear mezclas de compuestos, modificar parámetros instrumentales, superponer imágenes y exportar figuras de alta calidad.</p>
+            <div className="flex items-center gap-2 text-emerald-300 font-semibold text-sm group-hover:gap-3 transition-all">
+              Abrir simulador
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </div>
+          </button>
+
+          <button onClick={() => onSelect("identify")} className="group text-left rounded-3xl glass-panel p-8 shadow-2xl hover:border-sky-500/40 transition-all duration-300 hover:shadow-sky-500/10 hover:shadow-2xl animate-fadeInUp delay-2">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-sky-500/20 to-sky-600/10 flex items-center justify-center mb-5 group-hover:scale-110 transition-transform">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="text-sky-400">
+                <circle cx="11" cy="11" r="8"/>
+                <path d="M21 21l-4.35-4.35" strokeLinecap="round"/>
+                <path d="M8 8l6 6" strokeLinecap="round"/>
+              </svg>
+            </div>
+            <div className="text-2xl font-bold mb-3 group-hover:text-sky-200 transition-colors">Identificar espectro FTIR</div>
+            <p className="text-slate-400 mb-5 text-sm leading-relaxed">Importar datos experimentales reales y comparar contra bibliotecas internas o externas para identificar compuestos.</p>
+            <div className="flex items-center gap-2 text-sky-300 font-semibold text-sm group-hover:gap-3 transition-all">
+              Abrir identificación
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </div>
+          </button>
+        </div>
+
+        <div className="text-center text-xs text-slate-600 animate-fadeIn delay-4">Desarrollado para investigación y docencia · Biblioteca: {LIBRARY.length}+ compuestos</div>
+      </div>
+    </div>
+  );
+}
+
+function TopBar({ selectedCount, viewMode, exportCSV, exportSVG, exportPNG, exportPDF, reset, downloadLinks, setAppMode }) {
+  return (
+    <header className="rounded-2xl glass-panel p-4 shadow-xl shrink-0 animate-fadeIn">
+      <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500/20 to-emerald-600/10 flex items-center justify-center shrink-0">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-emerald-400"><path d="M3 3v18h18" strokeLinecap="round" strokeLinejoin="round"/><path d="M7 16c1-3 2.5-8 5-8s2.5 5 4 5 2-3 4-6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </div>
+          <div>
+            <h1 className="text-xl font-bold tracking-tight">FTIR Simulator 2.0</h1>
+            <p className="text-slate-500 text-xs">Simulación · Exportación · Análisis</p>
+          </div>
+        </div>
+        <div className="flex gap-3 flex-wrap items-center">
+          {/* Navigation */}
+          <div className="flex gap-1.5 items-center bg-slate-800/50 rounded-xl p-1">
+            <Button onClick={() => setAppMode(null)}>Inicio</Button>
+            <Button tone="green" onClick={() => setAppMode("simulate")}>Simular</Button>
+            <Button onClick={() => setAppMode("identify")}>Identificar</Button>
+          </div>
+          {/* Status badges */}
+          <div className="flex gap-1.5 items-center">
+            <Badge><span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block mr-1.5"></span>Activos: {selectedCount}</Badge>
+            <Badge>Vista: {viewMode === "combined" ? "combinada" : "separada"}</Badge>
+          </div>
+          {/* Export group */}
+          <div className="flex gap-1.5 items-center bg-slate-800/50 rounded-xl p-1">
+            <span className="text-xs text-slate-500 px-1.5">Exportar</span>
+            <Button tone="green" onClick={exportCSV}>CSV</Button>
+            <Button tone="sky" onClick={exportSVG}>SVG</Button>
+            <Button tone="cyan" onClick={exportPNG}>PNG</Button>
+            <Button tone="sky" onClick={exportPDF}>PDF</Button>
+          </div>
+          <Button tone="red" onClick={reset}>Reiniciar</Button>
+          {(downloadLinks.csv || downloadLinks.svg || downloadLinks.png) && (
+            <div className="flex gap-2 text-xs flex-wrap items-center bg-emerald-500/10 rounded-lg px-2.5 py-1.5 border border-emerald-500/20">
+              <span className="text-emerald-300 text-[11px]">✓ Listo:</span>
+              {downloadLinks.csv && <a href={downloadLinks.csv} download="ftir_spectrum_data.csv" className="text-emerald-300 underline hover:text-emerald-200">CSV</a>}
+              {downloadLinks.svg && <a href={downloadLinks.svg} download="ftir_spectrum_figure.svg" className="text-sky-300 underline hover:text-sky-200">SVG</a>}
+              {downloadLinks.png && <a href={downloadLinks.png} download="ftir_spectrum_figure.png" className="text-cyan-300 underline hover:text-cyan-200">PNG</a>}
+            </div>
+          )}
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function LibraryPanel({ compounds, categories, search, setSearch, category, setCategory, selected, addCompound, removeCompound, selectedCompounds, totalSelected, updateConcentration, graphBgMode, colorMode, allCompounds }) {
+  function getCompoundColor(compoundId) {
+    if (colorMode !== 'compound') return null;
+    const idx = selectedCompounds.findIndex(c => c.id === compoundId);
+    if (idx < 0) return null;
+    return colorForIndex(idx, graphBgMode);
+  }
+  return (
+    <aside className="xl:col-span-3 rounded-2xl glass-panel p-4 shadow-xl flex flex-col gap-4 min-h-0 h-full">
+      <section className="flex flex-col min-h-0 flex-[1.15]">
+        <div className="flex items-center gap-2 mb-3 shrink-0">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-emerald-400 shrink-0"><path d="M4 19.5A2.5 2.5 0 016.5 17H20" strokeLinecap="round" strokeLinejoin="round"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          <h2 className="text-lg font-semibold">Biblioteca</h2>
+          <span className="text-xs text-slate-500 ml-auto">{compounds.length} comp.</span>
+        </div>
+        <div className="space-y-2 shrink-0">
+          <div className="relative">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35" strokeLinecap="round"/></svg>
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar compuesto..." className="w-full bg-slate-800/80 rounded-xl pl-9 pr-3 py-2 border border-slate-700 text-sm focus:border-emerald-500/50 focus:outline-none focus:ring-1 focus:ring-emerald-500/20" />
+          </div>
+          <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full bg-slate-800/80 rounded-xl px-3 py-2 border border-slate-700 text-sm focus:border-emerald-500/50 focus:outline-none">
+            {categories.map((c) => <option key={c}>{c}</option>)}
+          </select>
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-1 mt-3">
+          {compounds.map((c) => {
+            const active = Number(selected[c.id] || 0) > 0;
+            return (
+              <div key={c.id} className={`rounded-xl p-3 card-hover cursor-pointer ${active ? 'bg-emerald-500/10 border border-emerald-500/25' : 'bg-slate-800/60 border border-slate-700/60'}`} onClick={() => active ? removeCompound(c.id) : addCompound(c.id)}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold text-sm truncate">{c.name}</div>
+                    <div className="text-xs text-slate-400 truncate">{c.formula} · <span className="text-slate-500">{c.category}</span></div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-500">{c.peaks.length} picos</span>
+                    {active
+                      ? <span className="w-6 h-6 rounded-lg bg-red-500/20 text-red-300 flex items-center justify-center text-xs font-bold border border-red-500/30">✕</span>
+                      : <span className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-xs font-bold border border-emerald-500/30">+</span>
+                    }
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+      <section className="border-t border-slate-700/40 pt-4 flex flex-col min-h-0 flex-1">
+        <div className="flex items-center gap-2 mb-3 shrink-0">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-sky-400"><path d="M12 2L2 7l10 5 10-5-10-5z" strokeLinecap="round" strokeLinejoin="round"/><path d="M2 17l10 5 10-5" strokeLinecap="round" strokeLinejoin="round"/><path d="M2 12l10 5 10-5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          <h3 className="font-semibold">Mezcla activa</h3>
+          {selectedCompounds.length > 0 && <span className="text-xs text-emerald-400 ml-auto">{selectedCompounds.length} sel.</span>}
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-2.5 pr-1">
+          {!selectedCompounds.length && (
+            <div className="rounded-xl bg-slate-800/40 border border-dashed border-slate-700/50 p-4 text-center">
+              <p className="text-sm text-slate-500">Haz clic en un compuesto de la biblioteca para agregarlo.</p>
+            </div>
+          )}
+          {selectedCompounds.map((c) => {
+            const value = Number(selected[c.id] || 0);
+            const fraction = totalSelected > 0 ? value / totalSelected : 0;
+            const cColor = getCompoundColor(c.id);
+            return (
+              <div key={c.id} className="rounded-xl bg-slate-800/60 border border-slate-700/60 p-3" style={cColor ? { borderLeftWidth: '3px', borderLeftColor: cColor } : {}}>
+                <div className="flex justify-between gap-2 mb-2">
+                  <div className="flex items-start gap-2">
+                    {cColor && <span className="w-3 h-3 rounded-full shrink-0 mt-0.5 shadow-lg" style={{ backgroundColor: cColor, boxShadow: `0 0 8px ${cColor}55` }} />}
+                    <div>
+                      <div className="font-semibold text-sm">{c.name}</div>
+                      <div className="text-xs text-slate-400">{c.formula}</div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-mono text-sm" style={cColor ? { color: cColor } : { color: '#6ee7b7' }}>{value.toFixed(2)}</div>
+                    <div className="text-[11px] text-slate-400">{(fraction * 100).toFixed(0)}%</div>
+                  </div>
+                </div>
+                <input type="range" min="0" max="1.5" step="0.01" value={selected[c.id] || 0} onChange={(e) => updateConcentration(c.id, e.target.value)} className="w-full" />
+                <div className="flex justify-between mt-2">
+                  <div className="text-[11px] text-slate-500">Cp: {c.cp}</div>
+                  <button onClick={() => removeCompound(c.id)} className="text-[11px] text-red-400/70 hover:text-red-300">Quitar</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    </aside>
+  );
+}
+
+function GraphSection(props) {
+  return (
+    <section className="rounded-2xl glass-panel p-4 shadow-xl flex-[1.35] flex flex-col min-h-0">
+      <div className="flex items-center justify-between gap-3 mb-3 shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-500/20 to-sky-600/10 flex items-center justify-center">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-sky-400"><path d="M3 3v18h18" strokeLinecap="round" strokeLinejoin="round"/><path d="M7 16c1-3 2.5-8 5-8s2.5 5 4 5 2-3 4-6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold">{props.overlayName ? `Espectro — ${props.overlayName}` : "Espectro FTIR"}</h2>
+            <p className="text-[11px] text-slate-500">4000 – 300 cm⁻¹ · {props.mode === "transmittance" ? "Transmitancia" : "Absorbancia"}</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1.5 justify-end items-center">
+          {/* View toggles */}
+          <div className="flex bg-slate-800/60 rounded-xl p-0.5 border border-slate-700/40">
+            <button onClick={() => props.setViewMode("combined")} className={`px-2.5 py-1.5 rounded-lg text-xs font-medium ${props.viewMode === "combined" ? "bg-sky-500/20 text-sky-300" : "text-slate-400 hover:text-slate-300"}`}>Combinado</button>
+            <button onClick={() => props.setViewMode("stacked")} className={`px-2.5 py-1.5 rounded-lg text-xs font-medium ${props.viewMode === "stacked" ? "bg-sky-500/20 text-sky-300" : "text-slate-400 hover:text-slate-300"}`}>Separado</button>
+          </div>
+          {/* Color toggle */}
+          <button onClick={() => props.setColorMode(props.colorMode === "single" ? "compound" : "single")} className={`px-2.5 py-1.5 rounded-xl text-xs font-medium border ${props.colorMode === "compound" ? "bg-purple-500/15 text-purple-300 border-purple-500/25" : "bg-slate-800/60 text-slate-400 border-slate-700/40 hover:text-slate-300"}`}>
+            {props.colorMode === "compound" ? "🎨 Multicolor" : "Monocolor"}
+          </button>
+          {/* Peak labels */}
+          <button onClick={() => props.setShowPeakLabels(!props.showPeakLabels)} className={`px-2.5 py-1.5 rounded-xl text-xs font-medium border ${props.showPeakLabels ? "bg-amber-500/15 text-amber-300 border-amber-500/25" : "bg-slate-800/60 text-slate-400 border-slate-700/40 hover:text-slate-300"}`}>
+            {props.showPeakLabels ? "📍 Picos" : "Picos"}
+          </button>
+          {/* Mode selector */}
+          <select value={props.mode} onChange={(e) => props.setMode(e.target.value)} className="bg-slate-800/80 rounded-xl px-2.5 py-1.5 border border-slate-700/40 text-xs focus:outline-none focus:border-sky-500/50">
+            <option value="absorbance">Absorbancia</option>
+            <option value="transmittance">Transmitancia (%)</option>
+          </select>
+          {/* Quick reset */}
+          <button onClick={() => { props.setZoomX(1); props.setZoomY(1); props.setPanX(0); }} className="px-2 py-1.5 rounded-xl bg-slate-800/60 text-slate-500 border border-slate-700/40 text-xs hover:text-slate-300" title="Reset zoom">⟲</button>
+        </div>
+      </div>
+      <div className="flex-1 min-h-0">{props.viewMode === "combined" ? <SpectrumChart {...props} /> : <StackedSpectra {...props} />}</div>
+    </section>
+  );
+}
+
+function SpectrumChart(props) {
+  const width = 980;
+  const height = 400;
+  const padLeft = 82;
+  const padRight = 20;
+  const padTop = 20;
+  const padBottom = 54;
+  const fullMin = 300;
+  const fullMax = 4000;
+  const range = fullMax - fullMin;
+  const visibleRange = range / Math.max(Number(props.zoomX || 1), 0.5);
+  const center = 2150 + Number(props.panX || 0) * Math.max(0, (range - visibleRange) / 2);
+  const minX = Math.max(fullMin, center - visibleRange / 2);
+  const maxX = Math.min(fullMax, center + visibleRange / 2);
+  const visible = props.data.filter((d) => d.x >= minX && d.x <= maxX);
+  const baseMax = Math.max(...visible.map((d) => d.y), props.mode === "transmittance" ? 100 : 1);
+  const yMax = Math.max(baseMax / Math.max(Number(props.zoomY || 1), 0.1), 0.05);
+  const plotW = width - padLeft - padRight;
+  const plotH = height - padTop - padBottom;
+  const toX = (x) => padLeft + ((maxX - x) / (maxX - minX || 1)) * plotW;
+  const toY = (y) => padTop + (1 - Math.min(y, yMax) / (yMax || 1)) * plotH;
+  const linePoints = (series) => series.filter((d) => d.x >= minX && d.x <= maxX).map((d) => `${toX(d.x)},${toY(d.y)}`).join(" ");
+  const totalPoints = linePoints(visible);
+  const componentPoints = props.componentSpectra.map((s) => ({ ...s, points: linePoints(s.data) }));
+  const unknownPoints = props.unknown
+    ? linePoints(normalizeY(props.unknown.filter((d) => d.x >= minX && d.x <= maxX)).map((d) => ({ x: d.x, y: d.y * yMax })))
+    : "";
+  const labels = detectPeaks(visible, props.markerLimit, Number(props.markerSpacing || 95), props.mode).map((p, i) => ({
+    number: i + 1,
+    x: p.x,
+    px: toX(p.x),
+    py: props.mode === "transmittance" ? toY(Math.max(0, yMax * (1 - p.y))) : toY(p.y),
+    info: interpretPeak(p.x),
+  }));
+  const density = Math.max(1, Math.min(4, Math.round(Number(props.gridDensity || 1))));
+  const xStep = density === 1 ? 500 : density === 2 ? 250 : density === 3 ? 100 : 50;
+  const yDivs = density === 1 ? 4 : density === 2 ? 8 : density === 3 ? 10 : 20;
+  const xTicks = [];
+  for (let t = Math.floor(maxX / xStep) * xStep; t >= Math.ceil(minX / xStep) * xStep; t -= xStep) {
+    if (t >= minX && t <= maxX) xTicks.push(t);
+  }
+  const yTicks = Array.from({ length: yDivs + 1 }, (_, i) => (i / yDivs) * yMax);
+  const preset = GRAPH_BG_PRESETS[props.graphBgMode] || GRAPH_BG_PRESETS.light;
+
+  return (
+    <div
+      className="relative w-full h-full min-h-[320px] overflow-hidden rounded-xl"
+      style={{ background: props.figureBg }}
+      onWheel={(e) => {
+        e.preventDefault();
+        const next = e.deltaY < 0 ? Math.min(8, props.zoomX + 0.15) : Math.max(0.5, props.zoomX - 0.15);
+        props.setZoomX(next);
+      }}
+    >
+      <svg
+        id="ftir-chart-svg"
+        viewBox={`0 0 ${width} ${height}`}
+        className="absolute inset-0 w-full h-full"
+        style={{ fontFamily: props.axisFontFamily }}
+        onMouseMove={(e) => {
+          const box = e.currentTarget.getBoundingClientRect();
+          const x = ((e.clientX - box.left) / box.width) * width;
+          const y = ((e.clientY - box.top) / box.height) * height;
+          if (props.dragLegend) {
+            props.setLegendX(Math.max(6, Math.min(width - 308, x)));
+            props.setLegendY(Math.max(6, Math.min(height - 80, y)));
+          }
+          if (props.dragCompoundLegend) {
+            props.setCompoundLegendX(Math.max(6, Math.min(width - 220, x)));
+            props.setCompoundLegendY(Math.max(6, Math.min(height - 50, y)));
+          }
+        }}
+        onMouseUp={() => {
+          props.setDragLegend(false);
+          props.setDragCompoundLegend(false);
+        }}
+        onMouseLeave={() => {
+          props.setDragLegend(false);
+          props.setDragCompoundLegend(false);
+        }}
+      >
+        <rect width={width} height={height} fill={props.figureBg} />
+        {props.overlayUrl && (
+          <image
+            href={props.overlayUrl}
+            x="0"
+            y="0"
+            width={width}
+            height={height}
+            preserveAspectRatio="xMidYMid meet"
+            opacity={props.overlayOpacity}
+            transform={`translate(${props.overlayX} ${props.overlayY}) translate(${width / 2} ${height / 2}) scale(${props.overlayScale * props.overlayScaleX} ${props.overlayScale * props.overlayScaleY}) rotate(${props.overlayRotate}) translate(${-width / 2} ${-height / 2})`}
+          />
+        )}
+
+        {/* Grid lines and tick labels */}
+        {xTicks.map((t) => (
+          <g key={t}>
+            <line x1={toX(t)} y1={padTop} x2={toX(t)} y2={height - padBottom} stroke={props.gridColor} strokeOpacity="0.5" strokeDasharray="4 3" />
+            <line x1={toX(t)} y1={height - padBottom} x2={toX(t)} y2={height - padBottom + 5} stroke={props.axisColor} strokeWidth="1.2" />
+            <text x={toX(t)} y={height - padBottom + 19} fontSize={props.axisFontSize} textAnchor="middle" fill={props.axisColor}>{t}</text>
+          </g>
+        ))}
+        {yTicks.map((t) => (
+          <g key={t}>
+            <line x1={padLeft} y1={toY(t)} x2={width - padRight} y2={toY(t)} stroke={props.gridColor} strokeOpacity="0.5" strokeDasharray="4 3" />
+            <line x1={padLeft - 5} y1={toY(t)} x2={padLeft} y2={toY(t)} stroke={props.axisColor} strokeWidth="1.2" />
+            <text x={padLeft - 8} y={toY(t) + 4} fontSize={props.axisFontSize} fill={props.axisColor} textAnchor="end">{t.toFixed(props.mode === "transmittance" ? 0 : 2)}</text>
+          </g>
+        ))}
+
+        {/* Axes */}
+        <line x1={padLeft} y1={height - padBottom} x2={width - padRight} y2={height - padBottom} stroke={props.axisColor} strokeWidth="1.5" />
+        <line x1={padLeft} y1={padTop} x2={padLeft} y2={height - padBottom} stroke={props.axisColor} strokeWidth="1.5" />
+
+        {props.colorMode === "compound" && componentPoints.map((s) => (
+          <polyline key={s.compound.id} points={s.points} fill="none" stroke={colorForIndex(s.index, props.graphBgMode)} strokeWidth="2.2" opacity="0.95" />
+        ))}
+        <polyline points={totalPoints} fill="none" stroke={props.curveColor} strokeWidth={props.colorMode === "compound" ? "1.5" : "2.4"} opacity={props.colorMode === "compound" ? "0.55" : "1"} />
+        {props.unknown && <polyline points={unknownPoints} fill="none" stroke={preset.unknownStroke} strokeWidth="2" strokeDasharray="7 5" opacity="0.9" />}
+
+        {props.showPeakLabels && labels.map((p) => (
+          <g key={p.number}>
+            <circle cx={p.px} cy={p.py} r="9" fill={preset.markerFill} fillOpacity={props.legendOpacity} stroke={preset.legendStroke} strokeWidth="1.2" />
+            <text x={p.px} y={p.py + 4} fontSize="9" textAnchor="middle" fill={preset.legendText}>{p.number}</text>
+          </g>
+        ))}
+
+        {props.showPeakLabels && props.showLegendBox && (
+          <g onMouseDown={() => props.setDragLegend(true)} style={{ cursor: "move" }}>
+            <rect x={props.legendX} y={props.legendY} width="310" height={Math.max(60, 36 + labels.length * 16)} rx="8" fill={preset.legendFill} fillOpacity={props.legendOpacity} stroke={preset.legendStroke} />
+            <text x={props.legendX + 12} y={props.legendY + 20} fontSize="11" fontWeight="700" fill={preset.legendText}>Picos / grupos funcionales</text>
+            {labels.map((p, i) => (
+              <text key={p.number} x={props.legendX + 12} y={props.legendY + 38 + i * 16} fontSize="10" fill={preset.legendText}>{p.number}. {Math.round(p.x)} cm⁻¹ · {p.info.label}</text>
+            ))}
+          </g>
+        )}
+
+        {props.colorMode === "compound" && props.componentSpectra.length > 0 && (
+          <g onMouseDown={() => props.setDragCompoundLegend(true)} style={{ cursor: "move" }}>
+            <rect x={props.compoundLegendX - 8} y={props.compoundLegendY - 14} width="220" height={Math.max(32, 18 + Math.min(props.componentSpectra.length, 7) * 18)} rx="8" fill={preset.legendFill} fillOpacity={props.compoundLegendOpacity} stroke={preset.legendStroke} />
+            {props.componentSpectra.slice(0, 7).map((s, i) => (
+              <g key={s.compound.id}>
+                <rect x={props.compoundLegendX} y={props.compoundLegendY + i * 18} width="9" height="9" fill={colorForIndex(s.index, props.graphBgMode)} />
+                <text x={props.compoundLegendX + 14} y={props.compoundLegendY + 9 + i * 18} fontSize="11" fill={preset.legendText}>{s.compound.name}</text>
+              </g>
+            ))}
+          </g>
+        )}
+
+        {/* Axis titles */}
+        <text x={(padLeft + width - padRight) / 2} y={height - 6} fontSize={props.axisFontSize + 1} textAnchor="middle" fill={props.axisColor} fontWeight="600">{props.xAxisTitle}</text>
+        <text x={18} y={(padTop + height - padBottom) / 2} fontSize={props.axisFontSize + 1} textAnchor="middle" fill={props.axisColor} fontWeight="600" transform={`rotate(-90 18 ${(padTop + height - padBottom) / 2})`}>{props.yAxisTitle}</text>
+      </svg>
+    </div>
+  );
+}
+
+function StackedSpectra({ componentSpectra, mode, colorMode, graphBgMode, axisFontSize, axisFontFamily, gridColor, axisColor, figureBg, showPeakLabels }) {
+  if (!componentSpectra.length) return <div className="h-full min-h-[320px] rounded-xl bg-white flex items-center justify-center text-slate-500 text-sm">Selecciona uno o más compuestos.</div>;
+  return (
+    <div className="h-full min-h-[320px] rounded-xl bg-white overflow-y-auto p-3 space-y-3">
+      {componentSpectra.map((s) => (
+        <div key={s.compound.id} className="rounded-xl border border-slate-200 p-2 bg-white">
+          <div className="flex justify-between items-center px-1 pb-1">
+            <div className="text-sm font-semibold text-slate-900">{s.compound.name}</div>
+            <div className="text-xs text-slate-500">{s.compound.formula}</div>
+          </div>
+          <MiniChart
+            data={s.data}
+            mode={mode}
+            color={colorMode === "compound" ? colorForIndex(s.index, graphBgMode || "light") : (graphBgMode === "dark" ? "#e2e8f0" : "#0f172a")}
+            axisFontSize={axisFontSize}
+            axisFontFamily={axisFontFamily}
+            gridColor={gridColor}
+            axisColor={axisColor}
+            figureBg={figureBg}
+            showPeakLabels={showPeakLabels}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MiniChart({ data, mode, color, axisFontSize, axisFontFamily, gridColor, axisColor, figureBg, showPeakLabels }) {
+  const width = 900;
+  const height = 210;
+  const pad = 40;
+  const yMax = Math.max(...data.map((d) => d.y), 1);
+  const toX = (x) => pad + ((4000 - x) / (4000 - 300)) * (width - pad * 2);
+  const toY = (y) => height - pad - (y / yMax) * (height - pad * 2);
+  const points = data.map((d) => `${toX(d.x)},${toY(d.y)}`).join(" ");
+  const labels = detectPeaks(data, 5, 90, mode).map((p, i) => ({ ...p, number: i + 1, px: toX(p.x), py: mode === "transmittance" ? toY(Math.max(0, yMax * (1 - p.y))) : toY(p.y) }));
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full" style={{ fontFamily: axisFontFamily }}>
+      <rect width={width} height={height} fill={figureBg} />
+      {[4000, 3000, 2000, 1000, 500, 300].map((t) => (
+        <g key={t}>
+          <line x1={toX(t)} y1={22} x2={toX(t)} y2={height - pad} stroke={gridColor} />
+          <text x={toX(t)} y={height - 10} fontSize={axisFontSize} textAnchor="middle" fill={axisColor}>{t}</text>
+        </g>
+      ))}
+      <line x1={pad} y1={height - pad} x2={width - pad} y2={height - pad} stroke={axisColor} strokeWidth="1.5" />
+      <line x1={pad} y1={22} x2={pad} y2={height - pad} stroke={axisColor} strokeWidth="1.5" />
+      <polyline points={points} fill="none" stroke={color} strokeWidth="2" />
+      {showPeakLabels && labels.map((p) => (
+        <g key={p.number}>
+          <circle cx={p.px} cy={p.py} r="7" fill="white" stroke={color} strokeWidth="1.2" />
+          <text x={p.px} y={p.py + 3.5} fontSize="8" textAnchor="middle" fill={axisColor}>{p.number}</text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function PeakPanel({ peaks }) {
+  return (
+    <section className="rounded-2xl glass-panel p-4 shadow-xl flex-1 flex flex-col min-h-0">
+      <div className="flex items-center justify-between gap-3 mb-3 shrink-0">
+        <div className="flex items-center gap-2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-400"><path d="M12 20V10" strokeLinecap="round"/><path d="M18 20V4" strokeLinecap="round"/><path d="M6 20v-4" strokeLinecap="round"/></svg>
+          <h2 className="text-base font-semibold">Picos detectados</h2>
+        </div>
+        <span className="text-[11px] text-slate-500 bg-slate-800/60 px-2 py-0.5 rounded-md">Intensidad 0–1</span>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2 flex-1 min-h-0 overflow-y-auto pr-1 auto-rows-min">
+        {peaks.map((p, i) => (
+          <div key={`${p.x}-${i}`} className="rounded-xl bg-slate-800 border border-slate-700 p-3">
+            <div className="font-mono text-emerald-300 text-sm">{Math.round(p.x)} cm⁻¹</div>
+            <div className="text-xs text-slate-400">I rel.: {p.y.toFixed(3)}</div>
+            <div className="text-xs text-slate-300 mt-1">{interpretPeak(p.x).label}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function IdentifyScreen({ unknown, setUnknown, handleSpectrumImport, pasteText, setPasteText, handlePasteSpectrum, handleExternalLibraryImport, externalInfo, identifyDomain, setIdentifyDomain, matches, compositionEstimates, buildSimulationFromIdentification, setAppMode, mode }) {
+  const peaks = unknown ? detectPeaks(unknown, 14, 85, mode) : [];
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-4">
+      <div className="max-w-[1300px] mx-auto h-screen overflow-hidden flex flex-col gap-4">
+        <header className="rounded-2xl glass-panel p-4 shadow-xl shrink-0 animate-fadeIn">
+          <div className="flex justify-between gap-3 flex-wrap items-center">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-500/20 to-sky-600/10 flex items-center justify-center">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-sky-400"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35" strokeLinecap="round"/></svg>
+              </div>
+              <div>
+                <h1 className="text-xl font-bold">Identificación de espectro FTIR</h1>
+                <p className="text-slate-500 text-xs">Importa datos y compara contra bibliotecas.</p>
+              </div>
+            </div>
+            <div className="flex gap-1.5 items-center bg-slate-800/50 rounded-xl p-1">
+              <Button onClick={() => setAppMode(null)}>Inicio</Button>
+              <Button tone="green" onClick={() => setAppMode("simulate")}>Ir al simulador</Button>
+            </div>
+          </div>
+        </header>
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 flex-1 min-h-0">
+          <section className="xl:col-span-4 rounded-2xl glass-panel p-4 shadow-xl space-y-4 overflow-y-auto animate-fadeInUp delay-1">
+            <div className="flex items-center gap-2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-sky-400"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" strokeLinecap="round" strokeLinejoin="round"/><polyline points="7 10 12 15 17 10" strokeLinecap="round" strokeLinejoin="round"/><line x1="12" y1="15" x2="12" y2="3" strokeLinecap="round"/></svg>
+              <h2 className="text-lg font-semibold">Entrada</h2>
+            </div>
+            <label className="block cursor-pointer text-center px-4 py-3 rounded-xl bg-gradient-to-r from-sky-500 to-sky-600 text-slate-950 font-semibold text-sm hover:from-sky-400 hover:to-sky-500 active:scale-[0.98] btn-shine">Importar espectro CSV/TXT/JCAMP/DPT<input type="file" accept=".csv,.txt,.jdx,.dx,.dpt" onChange={handleSpectrumImport} className="hidden" /></label>
+            <PasteBox pasteText={pasteText} setPasteText={setPasteText} handlePasteSpectrum={handlePasteSpectrum} />
+            <label className="block cursor-pointer text-center px-4 py-3 rounded-xl bg-gradient-to-r from-purple-500 to-purple-600 text-slate-950 font-semibold text-sm hover:from-purple-400 hover:to-purple-500 active:scale-[0.98] btn-shine">Cargar biblioteca externa JSON<input type="file" accept=".json,application/json" onChange={handleExternalLibraryImport} className="hidden" /></label>
+            {externalInfo && <div className="rounded-xl bg-purple-500/10 border border-purple-500/20 px-3 py-2 text-xs text-purple-200">Biblioteca cargada: {externalInfo.name} · {externalInfo.total || externalInfo.count} entradas</div>}
+            {unknown && <button onClick={() => setUnknown(null)} className="w-full px-3 py-2 rounded-xl bg-red-500/15 text-red-200 border border-red-500/25 text-sm hover:bg-red-500/25">Quitar espectro importado</button>}
+            <label className="block">
+              <div className="text-sm text-slate-300 mb-1">Dominio</div>
+              <select value={identifyDomain} onChange={(e) => setIdentifyDomain(e.target.value)} className="w-full bg-slate-800/80 rounded-xl px-3 py-2 border border-slate-700 text-sm focus:border-sky-500/50 focus:outline-none">
+                <option value="automatic">Automático / todas</option>
+                <option value="organics">Orgánicos</option>
+                <option value="polymers">Polímeros</option>
+                <option value="minerals">Minerales e inorgánicos</option>
+                <option value="gases">Gases y vapores</option>
+                <option value="pyrolysis">Biomasa / pirólisis</option>
+              </select>
+            </label>
+          </section>
+          <section className="xl:col-span-4 rounded-2xl glass-panel p-4 shadow-xl flex flex-col min-h-0 animate-fadeInUp delay-2">
+            <h2 className="text-lg font-semibold mb-3 shrink-0">Picos detectados</h2>
+            {!unknown && <EmptyBox>Importa o pega un espectro para detectar picos.</EmptyBox>}
+            {unknown && (
+              <div className="grid grid-cols-2 gap-2 overflow-y-auto pr-1">
+                {peaks.map((p, i) => (
+                  <div key={`${p.x}-${i}`} className="rounded-xl bg-slate-800 border border-slate-700 p-3">
+                    <div className="font-mono text-emerald-300 text-sm">{Math.round(p.x)} cm⁻¹</div>
+                    <div className="text-xs text-slate-400">I rel.: {p.y.toFixed(3)}</div>
+                    <div className="text-xs text-slate-300 mt-1">{interpretPeak(p.x).label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+          <section className="xl:col-span-4 rounded-2xl glass-panel p-4 shadow-xl flex flex-col min-h-0 animate-fadeInUp delay-3">
+            <h2 className="text-lg font-semibold mb-3 shrink-0">Candidatos</h2>
+            {!unknown && <EmptyBox>Aquí aparecerán las coincidencias.</EmptyBox>}
+            {unknown && (
+              <div className="space-y-3 overflow-y-auto pr-1">
+                <CompositionBox estimates={compositionEstimates} onSimulate={buildSimulationFromIdentification} />
+                <MatchesList matches={matches} unknown={unknown} mode={mode} />
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CompositionBox({ estimates, onSimulate }) {
+  if (!estimates?.length) {
+    return <div className="rounded-xl bg-slate-800 border border-slate-700 p-3 text-sm text-slate-400">No hay estimación suficiente de composición.</div>;
+  }
+  return (
+    <div className="rounded-xl bg-slate-800 border border-slate-700 p-3">
+      <div className="font-semibold text-sm mb-2">Composición estimada relativa</div>
+      <div className="text-xs text-slate-400 mb-3">Porcentaje aproximado calculado desde similitud espectral y picos coincidentes. No equivale a concentración real ni identificación confirmatoria.</div>
+      <button onClick={onSimulate} className="w-full mb-3 px-3 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-slate-950 font-semibold text-sm hover:from-emerald-400 hover:to-emerald-500 active:scale-[0.98] btn-shine">Construir simulación con estos candidatos</button>
+      <div className="space-y-2.5">
+        {estimates.map((r, i) => (
+          <div key={r.compound.id} className="space-y-1">
+            <div className="flex justify-between gap-2 text-xs">
+              <span>{i + 1}. {r.compound.name}</span>
+              <span className="font-mono text-emerald-300">{r.percent.toFixed(1)}%</span>
+            </div>
+            <div className="h-2.5 rounded-full bg-slate-950 overflow-hidden"><div className="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 rounded-full" style={{ width: `${Math.min(100, r.percent)}%` }} /></div>
+            <div className="text-[11px] text-slate-500">Coincidencia: {(r.score * 100).toFixed(1)}% · picos: {r.matched} coincidentes / {r.missing} faltantes · fuente: {r.source}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MatchesList({ matches, unknown, mode }) {
+  return (
+    <div className="space-y-2 overflow-y-auto pr-1">
+      {matches.map((m, i) => {
+        const d = matchDetails(unknown, m.compound, mode);
+        return (
+          <div key={m.compound.id} className="rounded-xl bg-slate-800 border border-slate-700 p-3">
+            <div className="flex justify-between gap-3">
+              <div>
+                <div className="font-semibold text-sm">{i + 1}. {m.compound.name}</div>
+                <div className="text-xs text-slate-400">{m.compound.formula} · {m.compound.category}</div>
+              </div>
+              <div className="font-mono text-emerald-300 text-sm">{(m.score * 100).toFixed(1)}%</div>
+            </div>
+            <div className="text-xs text-slate-400 mt-2">Fuente: {d.source} · coincidentes: {d.matched.length} · faltantes: {d.missing.length}</div>
+            {d.matched.slice(0, 3).map((p, k) => <div key={k} className="text-xs text-slate-400">{Math.round(p.exp)} cm⁻¹ ↔ {Math.round(p.ref)} cm⁻¹ · {p.label}</div>)}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PasteBox({ pasteText, setPasteText, handlePasteSpectrum }) {
+  return (
+    <div className="rounded-xl bg-slate-800/40 border border-slate-700/50 p-3 space-y-2">
+      <div className="text-sm font-semibold">Pegar datos manualmente</div>
+      <div className="text-xs text-slate-500">Dos columnas: número de onda e intensidad.</div>
+      <textarea value={pasteText || ""} onChange={(e) => setPasteText(e.target.value)} placeholder={"4000 0.02\n3995 0.021\n3990 0.019"} className="w-full h-32 bg-slate-950/80 rounded-xl px-3 py-2 border border-slate-700/50 text-xs font-mono focus:border-sky-500/50 focus:outline-none focus:ring-1 focus:ring-sky-500/20" />
+      <button onClick={handlePasteSpectrum} className="w-full px-3 py-2 rounded-xl bg-gradient-to-r from-sky-600 to-sky-700 text-white font-semibold text-sm hover:from-sky-500 hover:to-sky-600 active:scale-[0.98]">Usar datos pegados</button>
+    </div>
+  );
+}
+
+function ControlPanel(props) {
+  return (
+    <aside className="xl:col-span-3 rounded-2xl glass-panel p-4 shadow-xl flex flex-col gap-3 min-h-0 h-full overflow-y-auto">
+      <Collapsible title="Parámetros instrumentales" icon="instrument" defaultOpen>
+        <InstrumentControls {...props} />
+      </Collapsible>
+      <Collapsible title="Zoom y navegación" icon="zoom" defaultOpen>
+        <ZoomControls {...props} />
+      </Collapsible>
+      <Collapsible title="Estilo del gráfico" icon="palette">
+        <AppearanceControls {...props} />
+      </Collapsible>
+      <Collapsible title="Leyendas y marcadores" icon="tag">
+        <LegendControls {...props} />
+      </Collapsible>
+      <Collapsible title="Ejes y tipografía" icon="type">
+        <AxisControls {...props} />
+      </Collapsible>
+      <Collapsible title="Superposición de imagen" icon="image">
+        <ImageControls {...props} />
+      </Collapsible>
+      <Collapsible title="Importar y comparar" icon="data">
+        <DataControls {...props} />
+      </Collapsible>
+    </aside>
+  );
+}
+
+/* ── Zoom & Navigation ── */
+function ZoomControls(props) {
+  return (
+    <>
+      <Control label="Zoom X" value={props.zoomX} min={0.5} max={8} step={0.1} onChange={props.setZoomX} />
+      <Control label="Mover zona X" value={props.panX} min={-1} max={1} step={0.01} onChange={props.setPanX} />
+      <Control label="Zoom Y" value={props.zoomY} min={0.5} max={5} step={0.1} onChange={props.setZoomY} />
+      <div className="grid grid-cols-2 gap-1.5">
+        <button onClick={() => { props.setZoomX(1); props.setZoomY(1); props.setPanX(0); }} className="px-2.5 py-1.5 rounded-lg bg-slate-700/60 text-xs hover:bg-slate-600/60 active:scale-[0.97] border border-slate-700/40 font-medium">⟲ Reset zoom</button>
+        <button onClick={() => { props.setZoomX(1); props.setZoomY(1); props.setPanX(0); props.setGridDensity(2); }} className="px-2.5 py-1.5 rounded-lg bg-slate-700/60 text-xs hover:bg-slate-600/60 active:scale-[0.97] border border-slate-700/40 font-medium">⟲ Vista original</button>
+      </div>
+      <div className="text-[10px] text-slate-500 mt-1">Tip: usa la rueda del ratón sobre el gráfico para hacer zoom rápido.</div>
+    </>
+  );
+}
+
+/* ── Appearance ── */
+function AppearanceControls(props) {
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-2">
+        <button onClick={() => props.applyGraphPreset("light")} className="px-3 py-2 rounded-xl bg-white text-slate-900 border border-slate-300 text-sm font-semibold hover:bg-slate-50 active:scale-[0.97]">☀ Fondo blanco</button>
+        <button onClick={() => props.applyGraphPreset("dark")} className="px-3 py-2 rounded-xl bg-slate-800 text-white border border-slate-600 text-sm font-semibold hover:bg-slate-700 active:scale-[0.97]">🌙 Fondo negro</button>
+      </div>
+      <Control label="Densidad grilla" value={props.gridDensity} min={1} max={4} step={1} onChange={props.setGridDensity} />
+      <div className="grid grid-cols-2 gap-2">
+        <ColorInput label="Curva" value={props.curveColor} onChange={props.setCurveColor} />
+        <ColorInput label="Fondo" value={props.figureBg} onChange={props.setFigureBg} />
+        <ColorInput label="Ejes" value={props.axisColor} onChange={props.setAxisColor} />
+        <ColorInput label="Grilla" value={props.gridColor} onChange={props.setGridColor} />
+      </div>
+    </>
+  );
+}
+
+/* ── Legends & Markers ── */
+function LegendControls(props) {
+  return (
+    <>
+      <Control label="Máx. marcadores" value={props.markerLimit} min={1} max={10} step={1} onChange={props.setMarkerLimit} />
+      <Control label="Separación marcadores" value={props.markerSpacing} min={40} max={220} step={5} onChange={props.setMarkerSpacing} />
+      <Control label="Opacidad leyenda grupos" value={props.legendOpacity} min={0.15} max={0.95} step={0.01} onChange={props.setLegendOpacity} />
+      <Control label="Opacidad leyenda compuestos" value={props.compoundLegendOpacity} min={0.15} max={0.95} step={0.01} onChange={props.setCompoundLegendOpacity} />
+      <button onClick={() => props.setShowLegendBox(!props.showLegendBox)} className={`w-full px-3 py-2 rounded-xl text-sm font-medium active:scale-[0.98] ${props.showLegendBox ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25' : 'bg-slate-700/60 text-slate-400 border border-slate-700/40'}`}>Leyenda grupos: {props.showLegendBox ? "✓ visible" : "oculta"}</button>
+      <div className="grid grid-cols-2 gap-1.5">
+        <button onClick={() => { props.setLegendX(640); props.setLegendY(26); }} className="px-2.5 py-1.5 rounded-lg bg-slate-700/60 text-xs hover:bg-slate-600/60 active:scale-[0.97] border border-slate-700/40">↑ Picos arriba</button>
+        <button onClick={() => { props.setLegendX(640); props.setLegendY(240); }} className="px-2.5 py-1.5 rounded-lg bg-slate-700/60 text-xs hover:bg-slate-600/60 active:scale-[0.97] border border-slate-700/40">↓ Picos abajo</button>
+        <button onClick={() => { props.setCompoundLegendX(46); props.setCompoundLegendY(28); }} className="px-2.5 py-1.5 rounded-lg bg-slate-700/60 text-xs hover:bg-slate-600/60 active:scale-[0.97] border border-slate-700/40">↑ Comp. arriba</button>
+        <button onClick={() => { props.setCompoundLegendX(46); props.setCompoundLegendY(240); }} className="px-2.5 py-1.5 rounded-lg bg-slate-700/60 text-xs hover:bg-slate-600/60 active:scale-[0.97] border border-slate-700/40">↓ Comp. abajo</button>
+      </div>
+      <div className="text-[10px] text-slate-500 mt-1">Tip: arrastra las leyendas directamente en el gráfico para reposicionarlas.</div>
+    </>
+  );
+}
+
+/* ── Axes & Typography ── */
+function AxisControls(props) {
+  return (
+    <>
+      <Control label="Tamaño letra ejes" value={props.axisFontSize} min={8} max={22} step={1} onChange={props.setAxisFontSize} />
+      <TextInput label="Título eje X" value={props.xAxisTitle} onChange={props.setXAxisTitle} />
+      <TextInput label="Título eje Y" value={props.yAxisTitle} onChange={props.setYAxisTitle} />
+      <div className="text-[10px] text-slate-500">Los títulos de ejes se posicionan automáticamente sin superposición.</div>
+      <label className="block">
+        <div className="text-sm text-slate-400 mb-1">Fuente de ejes</div>
+        <select value={props.axisFontFamily} onChange={(e) => props.setAxisFontFamily(e.target.value)} className="w-full bg-slate-800/80 rounded-xl px-3 py-2 border border-slate-700/50 text-sm focus:border-sky-500/50 focus:outline-none">
+          <option>Arial</option>
+          <option>Times New Roman</option>
+          <option>Georgia</option>
+          <option>Helvetica</option>
+          <option>Courier New</option>
+          <option>Verdana</option>
+          <option>Inter</option>
+        </select>
+      </label>
+    </>
+  );
+}
+
+function InstrumentControls(props) {
+  return (
+    <>
+      <Control label="Ruido" value={props.noise} min={0} max={0.08} step={0.001} onChange={props.setNoise} />
+      <Control label="Línea base" value={props.baseline} min={0} max={0.25} step={0.005} onChange={props.setBaseline} />
+      <Control label="Pendiente" value={props.slope} min={-0.08} max={0.08} step={0.002} onChange={props.setSlope} />
+      <Control label="Camino óptico" value={props.pathLength} min={0.1} max={3} step={0.05} onChange={props.setPathLength} />
+      <Control label="Resolución" value={props.resolution} min={1} max={20} step={1} onChange={props.setResolution} />
+      <Control label="Desplazamiento picos" value={props.shift} min={-30} max={30} step={1} onChange={props.setShift} />
+      <Control label="Ensanchamiento" value={props.broadening} min={0} max={40} step={1} onChange={props.setBroadening} />
+    </>
+  );
+}
+
+function ImageControls(props) {
+  return (
+    <>
+      <label className="block cursor-pointer text-center px-4 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 text-slate-950 font-semibold text-sm hover:from-emerald-400 hover:to-emerald-500 active:scale-[0.98] btn-shine">Importar imagen JPG/PNG<input type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" onChange={props.handleOverlayImport} className="hidden" /></label>
+      {props.overlayName && <div className="rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-xs text-emerald-300 break-all">{props.overlayName}</div>}
+      {props.overlayUrl && <button onClick={props.clearOverlay} className="w-full px-3 py-2 rounded-xl bg-red-500/20 text-red-200 border border-red-500/30 text-sm">Quitar imagen</button>}
+      {props.overlayUrl && (
+        <>
+          <Control label="Transparencia" value={props.overlayOpacity} min={0} max={1} step={0.01} onChange={props.setOverlayOpacity} />
+          <Control label="Escala general" value={props.overlayScale} min={0.4} max={2.5} step={0.01} onChange={props.setOverlayScale} />
+          <Control label="Escala X" value={props.overlayScaleX} min={0.2} max={2.5} step={0.01} onChange={props.setOverlayScaleX} />
+          <Control label="Escala Y" value={props.overlayScaleY} min={0.2} max={2.5} step={0.01} onChange={props.setOverlayScaleY} />
+          <Control label="Mover X" value={props.overlayX} min={-400} max={400} step={1} onChange={props.setOverlayX} />
+          <Control label="Mover Y" value={props.overlayY} min={-300} max={300} step={1} onChange={props.setOverlayY} />
+          <Control label="Rotación" value={props.overlayRotate} min={-10} max={10} step={0.2} onChange={props.setOverlayRotate} />
+        </>
+      )}
+    </>
+  );
+}
+
+function DataControls(props) {
+  return (
+    <>
+      {/* Import section */}
+      <div className="space-y-2">
+        <div className="text-xs text-slate-400 font-medium uppercase tracking-wider">Importar espectro</div>
+        <label className="block cursor-pointer text-center px-4 py-3 rounded-xl bg-gradient-to-r from-sky-500 to-sky-600 text-slate-950 font-semibold text-sm hover:from-sky-400 hover:to-sky-500 active:scale-[0.98] btn-shine">
+          <span className="flex items-center justify-center gap-2">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17 8 12 3 7 8" strokeLinecap="round" strokeLinejoin="round"/><line x1="12" y1="3" x2="12" y2="15" strokeLinecap="round"/></svg>
+            CSV / TXT / JCAMP / DPT
+          </span>
+          <input type="file" accept=".csv,.txt,.jdx,.dx,.dpt" onChange={props.handleSpectrumImport} className="hidden" />
+        </label>
+      </div>
+
+      {/* Status indicator */}
+      {props.unknown && (
+        <div className="rounded-xl bg-sky-500/10 border border-sky-500/25 px-3 py-2.5 flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="text-xs text-sky-200 font-medium">Espectro cargado</div>
+            <div className="text-[10px] text-slate-400">{props.unknown.length} puntos de datos</div>
+          </div>
+          <button onClick={() => props.setUnknown(null)} className="px-2 py-1 rounded-lg bg-red-500/20 text-red-300 border border-red-500/30 text-[10px] font-medium hover:bg-red-500/30 shrink-0">✕ Quitar</button>
+        </div>
+      )}
+
+      {/* Paste section */}
+      <PasteBox pasteText={props.pasteText} setPasteText={props.setPasteText} handlePasteSpectrum={props.handlePasteSpectrum} />
+
+      {/* External library */}
+      <div className="space-y-2">
+        <div className="text-xs text-slate-400 font-medium uppercase tracking-wider">Biblioteca externa</div>
+        <label className="block cursor-pointer text-center px-4 py-3 rounded-xl bg-gradient-to-r from-purple-500 to-purple-600 text-slate-950 font-semibold text-sm hover:from-purple-400 hover:to-purple-500 active:scale-[0.98] btn-shine">
+          <span className="flex items-center justify-center gap-2">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 19.5A2.5 2.5 0 016.5 17H20" strokeLinecap="round" strokeLinejoin="round"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            Cargar biblioteca JSON
+          </span>
+          <input type="file" accept=".json,application/json" onChange={props.handleExternalLibraryImport} className="hidden" />
+        </label>
+        {props.externalInfo && (
+          <div className="rounded-xl bg-purple-500/10 border border-purple-500/25 px-3 py-2 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-purple-400 shrink-0" />
+            <div className="text-xs text-purple-200 min-w-0 truncate">{props.externalInfo.name} · {props.externalInfo.total || props.externalInfo.count} compuestos</div>
+          </div>
+        )}
+      </div>
+
+      {/* Database reference */}
+      <div className="rounded-xl bg-slate-800/40 border border-slate-700/40 p-3 space-y-1.5">
+        <div className="text-xs text-slate-400 font-medium">📚 Bases de datos abiertas</div>
+        <div className="text-[10px] text-slate-500 leading-relaxed">Puedes descargar espectros JCAMP-DX desde estas fuentes gratuitas y cargarlos aquí:</div>
+        <div className="flex flex-col gap-1">
+          <a href="https://sdbs.db.aist.go.jp/" target="_blank" rel="noopener noreferrer" className="text-[10px] text-sky-400 hover:text-sky-300 underline">• AIST SDBS — Spectral Database for Organic Compounds</a>
+          <a href="https://webbook.nist.gov/chemistry/" target="_blank" rel="noopener noreferrer" className="text-[10px] text-sky-400 hover:text-sky-300 underline">• NIST Chemistry WebBook — IR Spectra</a>
+          <a href="https://www.sigmaaldrich.com/technical-documents/articles/biology/ir-spectrum-table.html" target="_blank" rel="noopener noreferrer" className="text-[10px] text-sky-400 hover:text-sky-300 underline">• Sigma-Aldrich — IR Spectrum Reference</a>
+        </div>
+      </div>
+
+      {/* Match results */}
+      {props.unknown && props.matches && props.matches.length > 0 && (
+        <div className="rounded-xl bg-slate-900 border border-slate-700 p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-emerald-400"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35" strokeLinecap="round"/></svg>
+            <h3 className="font-semibold text-sm">Coincidencias detectadas</h3>
+            <span className="text-[10px] text-emerald-400 ml-auto bg-emerald-500/10 px-1.5 py-0.5 rounded">{props.matches.length}</span>
+          </div>
+          <MatchesList matches={props.matches} unknown={props.unknown} mode="absorbance" />
+        </div>
+      )}
+    </>
+  );
+}
+
+function Collapsible({ title, children, defaultOpen = false, icon }) {
+  const icons = {
+    instrument: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-emerald-400 shrink-0"><path d="M12 20V10" strokeLinecap="round"/><path d="M18 20V4" strokeLinecap="round"/><path d="M6 20v-4" strokeLinecap="round"/></svg>,
+    eye: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-sky-400 shrink-0"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
+    zoom: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-sky-400 shrink-0"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35" strokeLinecap="round"/><path d="M11 8v6M8 11h6" strokeLinecap="round"/></svg>,
+    palette: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-violet-400 shrink-0"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="8" r="1.5" fill="currentColor"/><circle cx="8" cy="12" r="1.5" fill="currentColor"/><circle cx="16" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="16" r="1.5" fill="currentColor"/></svg>,
+    tag: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-400 shrink-0"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z" strokeLinecap="round" strokeLinejoin="round"/><circle cx="7" cy="7" r="1.5" fill="currentColor"/></svg>,
+    type: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-cyan-400 shrink-0"><path d="M4 7V4h16v3" strokeLinecap="round" strokeLinejoin="round"/><path d="M9 20h6" strokeLinecap="round"/><path d="M12 4v16" strokeLinecap="round"/></svg>,
+    image: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-purple-400 shrink-0"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>,
+    data: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-400 shrink-0"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" strokeLinecap="round" strokeLinejoin="round"/><polyline points="7 10 12 15 17 10" strokeLinecap="round" strokeLinejoin="round"/><line x1="12" y1="15" x2="12" y2="3" strokeLinecap="round"/></svg>,
+  };
+  return (
+    <details open={defaultOpen} className="group rounded-xl bg-slate-800/60 border border-slate-700/50 p-3 hover:border-slate-600/60">
+      <summary className="font-semibold cursor-pointer select-none flex items-center gap-2 text-sm">
+        {icon && icons[icon]}
+        <span className="flex-1">{title}</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-slate-500 group-open:rotate-180 transition-transform duration-200" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </summary>
+      <div className="space-y-3 mt-3 pt-3 border-t border-slate-700/30">{children}</div>
+    </details>
+  );
+}
+
+function Badge({ children }) {
+  return <span className="px-3 py-1.5 rounded-full bg-slate-800/80 border border-slate-700/60 text-xs flex items-center gap-1">{children}</span>;
+}
+
+function Button({ children, onClick, tone = "slate" }) {
+  const styles = {
+    green: "bg-gradient-to-r from-emerald-500 to-emerald-600 text-slate-950 hover:from-emerald-400 hover:to-emerald-500 shadow-emerald-500/20",
+    sky: "bg-gradient-to-r from-sky-500 to-sky-600 text-slate-950 hover:from-sky-400 hover:to-sky-500 shadow-sky-500/20",
+    cyan: "bg-gradient-to-r from-cyan-500 to-cyan-600 text-slate-950 hover:from-cyan-400 hover:to-cyan-500 shadow-cyan-500/20",
+    red: "bg-gradient-to-r from-red-500 to-red-600 text-white hover:from-red-400 hover:to-red-500 shadow-red-500/20",
+    slate: "bg-slate-700/80 text-slate-200 hover:bg-slate-600/80",
+  };
+  return <button onClick={onClick} className={`px-3.5 py-1.5 rounded-xl font-semibold text-sm shadow-sm hover:shadow-md active:scale-[0.97] ${styles[tone] || styles.slate}`}>{children}</button>;
+}
+
+function SmallButton({ children, onClick, tone = "green" }) {
+  const cls = tone === "red" ? "bg-red-500/20 text-red-200 border-red-500/30 hover:bg-red-500/30" : "bg-emerald-500/20 text-emerald-200 border-emerald-500/30 hover:bg-emerald-500/30";
+  return <button onClick={onClick} className={`px-2.5 py-1 rounded-lg border text-xs font-medium ${cls}`}>{children}</button>;
+}
+
+function SmallToolbarButton({ children, onClick }) {
+  return <button onClick={onClick} className="px-3 py-2 rounded-xl bg-slate-800/80 border border-slate-700/50 text-sm hover:bg-slate-700/80 hover:border-slate-600 active:scale-[0.97]">{children}</button>;
+}
+
+function EmptyBox({ children }) {
+  return <div className="h-full rounded-xl bg-slate-800/40 border border-dashed border-slate-700/50 flex items-center justify-center text-slate-500 text-sm p-6 text-center">{children}</div>;
+}
+
+function ColorInput({ label, value, onChange }) {
+  return (
+    <label className="block rounded-xl bg-slate-800/40 border border-slate-700/40 p-2 hover:border-slate-600/50">
+      <div className="text-[11px] text-slate-400 mb-1">{label}</div>
+      <div className="flex items-center gap-2">
+        <input type="color" value={value} onChange={(e) => onChange(e.target.value)} className="w-8 h-7 bg-transparent rounded cursor-pointer" />
+        <input value={value} onChange={(e) => onChange(e.target.value)} className="min-w-0 flex-1 bg-slate-950/60 rounded-lg px-2 py-1 text-xs border border-slate-700/40 font-mono focus:border-sky-500/40 focus:outline-none" />
+      </div>
+    </label>
+  );
+}
+
+function TextInput({ label, value, onChange }) {
+  return (
+    <label className="block">
+      <div className="text-sm text-slate-400 mb-1">{label}</div>
+      <input value={value} onChange={(e) => onChange(e.target.value)} className="w-full bg-slate-800/60 rounded-xl px-3 py-2 border border-slate-700/50 text-sm focus:border-sky-500/50 focus:outline-none focus:ring-1 focus:ring-sky-500/15" />
+    </label>
+  );
+}
+
+function Control({ label, value, min, max, step, onChange }) {
+  return (
+    <label className="block group">
+      <div className="flex justify-between mb-1.5">
+        <span className="text-sm text-slate-400 group-hover:text-slate-300">{label}</span>
+        <span className="text-xs font-mono text-emerald-400/80 bg-emerald-500/10 px-1.5 py-0.5 rounded">{numberFormat(value, step)}</span>
+      </div>
+      <input type="range" value={value} min={min} max={max} step={step} onChange={(e) => onChange(Number(e.target.value))} className="w-full" />
+    </label>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<FTIRWebSimulator />);
+  </script>
+</body>
+</html>
